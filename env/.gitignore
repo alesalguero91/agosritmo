@@ -1,0 +1,10 @@
+# Created by venv; see https://docs.python.org/3/library/venv.html
+echo ".env
+*.pyc
+__pycache__/
+*.sqlite3
+staticfiles/
+media/
+.DS_Store
+.env.prod
+*.log" > .gitignore

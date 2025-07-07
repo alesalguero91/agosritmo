@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Notas PDF</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+<body>
+    <h1>Generador de Notas PDF</h1>
+    
+    <div class="form-group">
+        <label for="numero">Número de Cliente/Cuenta</label>
+        <input type="text" id="numero" name="numero" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="archivo">Comprobante (PDF o imagen):</label>
+        <input type="file" id="archivo" name="archivo" accept=".pdf,.jpg,.jpeg,.png" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="excelFile">Archivo Excel de Clientes:</label>
+        <input type="file" id="excelFile" name="excelFile" accept=".xlsx,.xls" required>
+    </div>
+    
+    <div>
+        <button onclick="generarNota()">Generar Nota PDF</button>
+    </div>
+    
+    <div id="result"></div>
+    
+    <script>
+        function mostrarResultado(mensaje, esError = false) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = mensaje;
+            resultDiv.className = esError ? 'error' : 'success';
+        }
+        
+        async function generarNota() {
+            const numero = document.getElementById('numero').value;
+            const archivoInput = document.getElementById('archivo');
+            const archivo = archivoInput.files[0];
+            const excelInput = document.getElementById('excelFile');
+            const excelFile = excelInput.files[0];
+            
+            if (!numero || !archivo || !excelFile) {
+                mostrarResultado('❌ Por favor, complete todos los campos', true);
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('pdf_file', archivo);
+            formData.append('additional_data', numero);
+            formData.append('excel_file', excelFile);
+            
+            try {
+                const response = await fetch('/generar-nota/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const contentType = response.headers.get('content-type');
+                
+                if (contentType && contentType.includes('application/json')) {
+                    const data = await response.json();
+                    if (!response.ok) {
+                        mostrarResultado(`❌ ${data.error}`, true);
+                        return;
+                    }
+                }
+                else if (contentType && contentType.includes('application/pdf')) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'nota_generada.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    
+                    // Limpiar solo los campos de número y PDF (mantener Excel)
+                    document.getElementById('numero').value = '';
+                    archivoInput.value = '';
+                    
+                    mostrarResultado('✅ Nota generada y descargada correctamente');
+                }
+                else {
+                    mostrarResultado('❌ Respuesta inesperada del servidor', true);
+                }
+            } catch (error) {
+                mostrarResultado(`❌ Error de conexión: ${error.message}`, true);
+            }
+        }
+    </script>
+</body>
+</html>
