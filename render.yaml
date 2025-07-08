@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: django-tesseract-app
+    name: titanio-app
     runtime: docker
     plan: free
-    buildCommand: docker build -t django-tesseract .
-    startCommand: gunicorn --bind 0.0.0.0:$PORT app.wsgi:application
+    buildCommand: docker build -t titanio .
+    startCommand: ./entrypoint.sh
     envVars:
       - key: DJANGO_SECRET_KEY
         generateValue: true
@@ -12,3 +12,5 @@ services:
         value: "0"
       - key: ALLOWED_HOSTS
         value: ".onrender.com"
+      - key: PYTHONPATH
+        value: "/app"
