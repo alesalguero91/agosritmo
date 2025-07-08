@@ -39,7 +39,7 @@ COPY . .
 ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 ENV TESSERACT_CMD=/usr/bin/tesseract
-ENV PORT=8000  # Render usa esta variable automáticamente
+ENV PORT=8000 
 
 # 5. Permisos para scripts (si usas entrypoint.sh)
 RUN chmod +x /app/entrypoint.sh
