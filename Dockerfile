@@ -42,6 +42,7 @@ ENV TESSERACT_CMD=/usr/bin/tesseract
 ENV PORT=8000 
 
 # 5. Permisos para scripts (si usas entrypoint.sh)
+COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # 6. Puerto expuesto (Render lo redirige automáticamente)
@@ -49,3 +50,4 @@ EXPOSE $PORT
 
 # 7. Comando de inicio optimizado para Render
 CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "--workers", "2", "app.wsgi:application"]
+
