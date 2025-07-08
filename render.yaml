@@ -14,3 +14,5 @@ services:
         value: ".onrender.com"
       - key: PYTHONPATH
         value: "/app"
+      - key: TESSERACT_CMD
+        value: "/usr/bin/tesseract"
