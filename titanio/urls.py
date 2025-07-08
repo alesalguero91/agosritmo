@@ -23,5 +23,5 @@ from django.urls import include, path
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('lectorpdf.urls')),
-    path('', include('clientes.urls'))
+    path('api/', include('clientes.urls'))
 ]
