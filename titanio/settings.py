@@ -127,7 +127,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-WSGI_APPLICATION = 'generadordor.wsgi.application'
+WSGI_APPLICATION = 'GeneradorDoc.wsgi.application'
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

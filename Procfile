@@ -1,1 +1,1 @@
-web: gunicorn generadordoc.wsgi:application
+web: gunicorn GeneradorDoc.wsgi:application

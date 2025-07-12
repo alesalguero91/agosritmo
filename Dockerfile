@@ -29,4 +29,4 @@ ENV PYTHONPATH=/app
 
 EXPOSE $PORT
 
-CMD ["gunicorn", "generadordoc.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["gunicorn", "GeneradorDoc.wsgi:application", "--bind", "0.0.0.0:8000"]
