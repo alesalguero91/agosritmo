@@ -1,1 +1,1 @@
-web: gunicorn titanio.wsgi:application
+web: bash entrypoint.sh

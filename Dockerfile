@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Instala dependencias del sistema
+# Instala dependencias del sistema (Tesseract y herramientas PDF)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     tesseract-ocr \
@@ -25,8 +25,8 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 ENV TESSERACT_CMD=/usr/bin/tesseract
-ENV PYTHONPATH=/app
 
 EXPOSE $PORT
 
-CMD ["gunicorn", "titanio.wsgi:application", "--bind", "0.0.0.0:8000"]
+# Ejecuta Gunicorn con configuración robusta
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "--max-requests", "1000", "titanio.wsgi:application"]
