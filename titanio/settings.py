@@ -31,6 +31,9 @@ INSTALLED_APPS = [
     'clientes',
 ]
 
+ROOT_URLCONF = 'titanio.urls'
+
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # ¡Importante: Debe estar arriba!
