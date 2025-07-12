@@ -19,4 +19,4 @@ python manage.py migrate --noinput || echo "⚠ Advertencia: Falló migrate" >&2
 python manage.py collectstatic --noinput --clear || echo "⚠ Advertencia: Falló collectstatic" >&2
 
 # Inicio de Gunicorn (ajustado para tu estructura)
-exec gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 GeneradorDoc.wsgi:application
+exec gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 titanio.wsgi:application
