@@ -5,167 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generador de Notas PDF</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-        input[type="text"], input[type="file"] {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-right: 10px;
-            margin-bottom: 10px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        #result {
-            margin-top: 20px;
-            padding: 10px;
-            border-radius: 4px;
-        }
-        .success {
-            background-color: #dff0d8;
-            color: #3c763d;
-        }
-        .error {
-            background-color: #f2dede;
-            color: #a94442;
-        }
-        .loading {
-            background-color: #d9edf7;
-            color: #31708f;
-        }
+        /* [Mantén tus estilos CSS actuales] */
     </style>
 </head>
 <body>
-    <h1>Generador de Notas PDF</h1>
-    
-    <div class="form-group">
-        <label for="numero">Número de Cliente/Cuenta</label>
-        <input type="text" id="numero" name="numero" required>
-    </div>
-    
-    <div class="form-group">
-        <label for="archivo">Comprobante (PDF o imagen):</label>
-        <input type="file" id="archivo" name="archivo" accept=".pdf,.jpg,.jpeg,.png" required>
-    </div>
-    
-    <div class="form-group">
-        <label for="excelFile">Archivo Excel de Clientes:</label>
-        <input type="file" id="excelFile" name="excelFile" accept=".xlsx,.xls" required>
-    </div>
-    
-    <div>
-        <button onclick="generarNota()">Generar Nota PDF</button>
-    </div>
-    
-    <div id="result"></div>
+    <!-- [Mantén tu estructura HTML actual] -->
     
     <script>
-        // Configuración de la API - ¡IMPORTANTE! Cambia esta URL por la de tu app en Render
-        const API_BASE_URL = 'https://agosritmo.onrender.com/';  // Ejemplo: 'https://tu-app.onrender.com'
-        
-        function mostrarResultado(mensaje, esError = false, esLoading = false) {
-            const resultDiv = document.getElementById('result');
-            resultDiv.textContent = mensaje;
-            resultDiv.className = esError ? 'error' : (esLoading ? 'loading' : 'success');
-        }
-        
+        const API_BASE_URL = 'https://agosritmo.onrender.com';  // Misma URL para front y back
+
         async function generarNota() {
-            const numero = document.getElementById('numero').value;
-            const archivoInput = document.getElementById('archivo');
-            const archivo = archivoInput.files[0];
-            const excelInput = document.getElementById('excelFile');
-            const excelFile = excelInput.files[0];
-            
-            if (!numero || !archivo || !excelFile) {
-                mostrarResultado('❌ Por favor, complete todos los campos', true);
-                return;
-            }
+            // [Mantén tu lógica de recolección de datos del formulario]
             
             mostrarResultado('⏳ Procesando solicitud...', false, true);
-            
-            const formData = new FormData();
-            formData.append('pdf_file', archivo);
-            formData.append('additional_data', numero);
-            formData.append('excel_file', excelFile);
             
             try {
                 const response = await fetch(`${API_BASE_URL}/generar-nota/`, {
                     method: 'POST',
                     body: formData,
-                    // headers: { 'X-CSRFToken': getCookie('csrftoken') } // Si usas CSRF
+                    credentials: 'include',  // Importante para cookies de sesión
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'  // Ayuda a identificar peticiones AJAX
+                    }
                 });
-                
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => null);
-                    const errorMsg = errorData?.error || `Error ${response.status}: ${response.statusText}`;
-                    mostrarResultado(`❌ ${errorMsg}`, true);
+
+                if (response.status === 403) {
+                    mostrarResultado('❌ Error de autenticación CSRF', true);
                     return;
                 }
+
+                // [Mantén el resto de tu lógica de manejo de respuesta]
                 
-                const contentType = response.headers.get('content-type');
-                
-                if (contentType?.includes('application/pdf')) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `nota_generada_${numero}.pdf`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    a.remove();
-                    
-                    // Limpiar solo los campos de número y PDF (mantener Excel)
-                    document.getElementById('numero').value = '';
-                    archivoInput.value = '';
-                    
-                    mostrarResultado('✅ Nota generada y descargada correctamente');
-                } else {
-                    mostrarResultado('❌ El servidor no devolvió un PDF válido', true);
-                }
             } catch (error) {
                 console.error('Error completo:', error);
-                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica tu conexión a internet'}`, true);
+                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica la consola para más detalles'}`, true);
             }
         }
-        
-        // Función auxiliar para CSRF (si lo necesitas)
-        function getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
+
+        // [Mantén tus otras funciones auxiliares]
     </script>
 </body>
 </html>

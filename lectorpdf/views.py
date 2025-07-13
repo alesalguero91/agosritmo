@@ -7,7 +7,10 @@ from .utils.pdf_processing import process_pdf_or_image
 from django.http import HttpResponse
 from .utils.pdf_generator import generar_pdf_con_texto_y_imagen
 import pandas as pd
+from django.views.decorators.csrf import ensure_csrf_cookie
 
+
+@ensure_csrf_cookie
 def subir_archivo_view(request):
     return render(request, 'lectorpdf/lectorpdf.html')
 

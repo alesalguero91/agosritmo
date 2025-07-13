@@ -18,6 +18,10 @@ SECRET_KEY = 'django-insecure-gbe)0#^&dn)_f34f(sxi48$ki$irnle!ju#u!%($)vtm46(og*
 DEBUG = False
 ALLOWED_HOSTS = ['*']
 
+CORS_ALLOWED_ORIGINS = [
+    "https://agosritmo.onrender.com",
+]
+
 # Aplicaciones y middlewares (sin cambios)
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -33,6 +37,18 @@ INSTALLED_APPS = [
 
 ROOT_URLCONF = 'titanio.urls'
 
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = [
+    "https://agosritmo.onrender.com",
+]
+
+
+
+# Configuración de sesión (necesaria para CSRF)
+SESSION_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
 
 TEMPLATES = [
     {
@@ -53,8 +69,10 @@ TEMPLATES = [
 
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # Primero
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',  # ¡Importante: Debe estar arriba!
+    'corsheaders.middleware.CorsMiddleware',  # Primero
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
