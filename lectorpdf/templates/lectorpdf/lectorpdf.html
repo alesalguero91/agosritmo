@@ -51,6 +51,10 @@
             background-color: #f2dede;
             color: #a94442;
         }
+        .loading {
+            background-color: #d9edf7;
+            color: #31708f;
+        }
     </style>
 </head>
 <body>
@@ -78,10 +82,13 @@
     <div id="result"></div>
     
     <script>
-        function mostrarResultado(mensaje, esError = false) {
+        // Configuración de la API - ¡IMPORTANTE! Cambia esta URL por la de tu app en Render
+        const API_BASE_URL = 'https://titanio.onrender.com';  // Ejemplo: 'https://tu-app.onrender.com'
+        
+        function mostrarResultado(mensaje, esError = false, esLoading = false) {
             const resultDiv = document.getElementById('result');
             resultDiv.textContent = mensaje;
-            resultDiv.className = esError ? 'error' : 'success';
+            resultDiv.className = esError ? 'error' : (esLoading ? 'loading' : 'success');
         }
         
         async function generarNota() {
@@ -96,48 +103,68 @@
                 return;
             }
             
+            mostrarResultado('⏳ Procesando solicitud...', false, true);
+            
             const formData = new FormData();
             formData.append('pdf_file', archivo);
             formData.append('additional_data', numero);
             formData.append('excel_file', excelFile);
             
             try {
-                const response = await fetch('/generar-nota/', {
+                const response = await fetch(`${API_BASE_URL}/generar-nota/`, {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    // headers: { 'X-CSRFToken': getCookie('csrftoken') } // Si usas CSRF
                 });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => null);
+                    const errorMsg = errorData?.error || `Error ${response.status}: ${response.statusText}`;
+                    mostrarResultado(`❌ ${errorMsg}`, true);
+                    return;
+                }
                 
                 const contentType = response.headers.get('content-type');
                 
-                if (contentType && contentType.includes('application/json')) {
-                    const data = await response.json();
-                    if (!response.ok) {
-                        mostrarResultado(`❌ ${data.error}`, true);
-                        return;
-                    }
-                }
-                else if (contentType && contentType.includes('application/pdf')) {
+                if (contentType?.includes('application/pdf')) {
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = 'nota_generada.pdf';
+                    a.download = `nota_generada_${numero}.pdf`;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
+                    a.remove();
                     
                     // Limpiar solo los campos de número y PDF (mantener Excel)
                     document.getElementById('numero').value = '';
                     archivoInput.value = '';
                     
                     mostrarResultado('✅ Nota generada y descargada correctamente');
-                }
-                else {
-                    mostrarResultado('❌ Respuesta inesperada del servidor', true);
+                } else {
+                    mostrarResultado('❌ El servidor no devolvió un PDF válido', true);
                 }
             } catch (error) {
-                mostrarResultado(`❌ Error de conexión: ${error.message}`, true);
+                console.error('Error completo:', error);
+                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica tu conexión a internet'}`, true);
             }
+        }
+        
+        // Función auxiliar para CSRF (si lo necesitas)
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
         }
     </script>
 </body>
