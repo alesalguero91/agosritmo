@@ -15,7 +15,7 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-gbe)0#^&dn)_f34f(sxi48$ki$irnle!ju#u!%($)vtm46(og*'
-DEBUG = False
+DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CORS_ALLOWED_ORIGINS = [
@@ -66,13 +66,10 @@ TEMPLATES = [
     },
 ]
 
-
-
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',  # Primero
+    'corsheaders.middleware.CorsMiddleware',  # Solo una vez
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # ¡Importante: Debe estar arriba!
-    'corsheaders.middleware.CorsMiddleware',  # Primero
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Después de SecurityMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -80,6 +77,9 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# Añade esto para WhiteNoise
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Configuración sin base de datos
 DATABASES = {

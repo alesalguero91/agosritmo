@@ -12,7 +12,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 
 @ensure_csrf_cookie
 def subir_archivo_view(request):
-    return render(request, 'lectorpdf/lectorpdf.html')
+    return render(request, 'lectorpdf/lectorpdf.html', status=200)
 
 class PDFUploadView(APIView):
     def post(self, request):
