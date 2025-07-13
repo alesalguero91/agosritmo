@@ -10,7 +10,6 @@ import pandas as pd
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 
-@ensure_csrf_cookie
 def subir_archivo_view(request):
     return render(request, 'lectorpdf/lectorpdf.html')
 
