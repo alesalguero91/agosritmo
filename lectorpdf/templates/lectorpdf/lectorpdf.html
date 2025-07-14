@@ -91,7 +91,7 @@
     <div id="result"></div>
     
     <script>
-        const API_BASE_URL = window.location.origin; // Usa la misma URL del frontend
+        const API_BASE_URL = window.location.origin;
 
         function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false) {
             const resultDiv = document.getElementById('result');
@@ -103,13 +103,11 @@
         }
 
         function limpiarCampos() {
-            // Limpia solo número y PDF (mantiene Excel)
             document.getElementById('numero').value = '';
             document.getElementById('archivo').value = '';
         }
 
         function limpiarTodo() {
-            // Limpia todos los campos incluyendo Excel
             document.getElementById('numero').value = '';
             document.getElementById('archivo').value = '';
             document.getElementById('excelFile').value = '';
@@ -160,13 +158,24 @@
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = 'nota_generada.pdf';
+                    
+                    // Obtener el nombre del archivo del encabezado Content-Disposition
+                    const contentDisposition = response.headers.get('content-disposition');
+                    let filename = 'nota_generada.pdf'; // valor por defecto
+                    
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                        if (filenameMatch && filenameMatch.length === 2) {
+                            filename = filenameMatch[1];
+                        }
+                    }
+                    
+                    a.download = filename;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
                     a.remove();
                     
-                    // Limpiar campos (excepto Excel)
                     mostrarResultado('✅ Descarga completada. Limpiando campos...', false, false, true);
                     setTimeout(() => {
                         limpiarCampos();

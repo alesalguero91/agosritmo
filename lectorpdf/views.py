@@ -60,7 +60,7 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Procesar Excel para obtener nombre del cliente
+            # Procesar Excel para obtener datos del cliente
             try:
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
@@ -68,13 +68,16 @@ class NotaGeneradaView(APIView):
                 # Buscar cliente por número de cuenta (convertir a int para coincidir)
                 cliente_info = df[df['cuenta'] == int(numero_cliente)].iloc[0]
                 nombre_cliente = cliente_info['nombre']
+                dni_cliente = cliente_info.get('dni', '')
                 
-                # Limpiar nombre para archivo (remover caracteres problemáticos)
+                # Limpiar datos para nombre de archivo
                 nombre_cliente = re.sub(r'[\\/*?:"<>|]', '', nombre_cliente).strip()
                 nombre_cliente = nombre_cliente.replace(' ', '_')[:50]  # Limitar longitud
+                dni_cliente = str(dni_cliente).strip()
             except Exception as e:
-                logger.error(f"Error al obtener nombre del cliente: {str(e)}")
+                logger.error(f"Error al obtener datos del cliente: {str(e)}")
                 nombre_cliente = "cliente"
+                dni_cliente = ""
             
             # Generar el PDF
             resultado = generar_pdf_con_texto_y_imagen(
@@ -90,9 +93,9 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Generar nombre del archivo con formato: Nota_NUMERO_NOMBRE_FECHA.pdf
+            # Generar nombre del archivo con formato: Nota_NUMERO_DNI_NOMBRE_FECHA.pdf
             fecha_actual = datetime.now().strftime("%Y%m%d")
-            nombre_archivo = f"Nota_{numero_cliente}_{nombre_cliente}_{fecha_actual}.pdf"
+            nombre_archivo = f"Nota_{numero_cliente}_{dni_cliente}_{nombre_cliente}_{fecha_actual}.pdf"
             
             # Crear respuesta con el nombre personalizado
             response = HttpResponse(
@@ -142,7 +145,6 @@ class ExcelUploadView(APIView):
                 {'error': 'Error al procesar Excel'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 """    
 class NotaGeneradaViewEnWord(APIView):
