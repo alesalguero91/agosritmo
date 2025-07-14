@@ -10,6 +10,8 @@ import pandas as pd
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.parsers import MultiPartParser, FormParser
 import logging
+from datetime import datetime
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ class NotaGeneradaView(APIView):
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
             file = serializer.validated_data['pdf_file']
-            additional_data = serializer.validated_data.get('additional_data')
+            numero_cliente = serializer.validated_data.get('additional_data')
             excel_file = request.FILES.get('excel_file')
             
             if not excel_file:
@@ -58,9 +60,26 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Procesar Excel para obtener nombre del cliente
+            try:
+                df = pd.read_excel(excel_file)
+                df.columns = df.columns.str.lower().str.strip()
+                
+                # Buscar cliente por número de cuenta
+                cliente_info = df[df['cuenta'] == int(numero_cliente)].iloc[0]
+                nombre_cliente = cliente_info['nombre']
+                
+                # Limpiar nombre para usar en archivo (remover caracteres especiales)
+                nombre_cliente = re.sub(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ ]', '', nombre_cliente)
+                nombre_cliente = nombre_cliente.replace(' ', '_')
+            except Exception as e:
+                logger.error(f"Error al obtener nombre del cliente: {str(e)}")
+                nombre_cliente = "cliente"
+            
+            # Generar PDF
             resultado = generar_pdf_con_texto_y_imagen(
                 file, 
-                additional_data,
+                numero_cliente,
                 excel_data=excel_file
             )
             
@@ -71,11 +90,15 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Generar nombre del archivo
+            fecha_actual = datetime.now().strftime("%Y%m%d")
+            nombre_archivo = f"Nota_{numero_cliente}_{nombre_cliente}_{fecha_actual}.pdf"
+            
             response = FileResponse(
                 resultado['pdf'],
                 content_type='application/pdf',
                 headers={
-                    'Content-Disposition': 'attachment; filename="nota_generada.pdf"',
+                    'Content-Disposition': f'attachment; filename="{nombre_archivo}"',
                     'Access-Control-Expose-Headers': 'Content-Disposition'
                 }
             )
