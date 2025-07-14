@@ -5,13 +5,82 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generador de Notas PDF</title>
     <style>
-        /* [Mantén tus estilos CSS actuales] */
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
     </style>
 </head>
 <body>
-    <!-- [Mantén tu estructura HTML actual] -->
+    <h1>Generador de Notas PDF</h1>
     
-    <script>
+    <form id="notaForm" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="numero">Número de Cliente/Cuenta</label>
+            <input type="text" id="numero" name="numero" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="archivo">Comprobante (PDF o imagen):</label>
+            <input type="file" id="archivo" name="archivo" accept=".pdf,.jpg,.jpeg,.png" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="excelFile">Archivo Excel de Clientes:</label>
+            <input type="file" id="excelFile" name="excelFile" accept=".xlsx,.xls" required>
+        </div>
+        
+        <div>
+            <button type="button" onclick="generarNota()">Generar Nota PDF</button>
+        </div>
+    </form>
+    
+    <div id="result"></div>
+    
+   <script>
         const API_BASE_URL = 'https://agosritmo.onrender.com';  // Misma URL para front y back
 
         async function generarNota() {
