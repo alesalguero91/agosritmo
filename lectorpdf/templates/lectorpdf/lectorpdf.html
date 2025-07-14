@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generador de Notas PDF</title>
     <style>
+        /* [Mantén tus estilos CSS actuales] */
         body {
             font-family: Arial, sans-serif;
             max-width: 600px;
@@ -51,6 +52,10 @@
             background-color: #f2dede;
             color: #a94442;
         }
+        .processing {
+            background-color: #d9edf7;
+            color: #31708f;
+        }
     </style>
 </head>
 <body>
@@ -80,21 +85,42 @@
     
     <div id="result"></div>
     
-   <script>
-        const API_BASE_URL = 'https://agosritmo.onrender.com';  // Misma URL para front y back
+    <script>
+        const API_BASE_URL = 'https://agosritmo.onrender.com';
+
+        function mostrarResultado(mensaje, esError = false, esProcesando = false) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = mensaje;
+            resultDiv.className = esError ? 'error' : (esProcesando ? 'processing' : 'success');
+        }
 
         async function generarNota() {
-            // [Mantén tu lógica de recolección de datos del formulario]
+            const numero = document.getElementById('numero').value;
+            const archivoInput = document.getElementById('archivo');
+            const archivo = archivoInput.files[0];
+            const excelInput = document.getElementById('excelFile');
+            const excelFile = excelInput.files[0];
+            
+            if (!numero || !archivo || !excelFile) {
+                mostrarResultado('❌ Por favor, complete todos los campos', true);
+                return;
+            }
             
             mostrarResultado('⏳ Procesando solicitud...', false, true);
             
             try {
+                const formData = new FormData(document.getElementById('notaForm'));
+                formData.append('pdf_file', archivo);
+                formData.append('additional_data', numero);
+                formData.append('excel_file', excelFile);
+                
                 const response = await fetch(`${API_BASE_URL}/generar-nota/`, {
                     method: 'POST',
                     body: formData,
-                    credentials: 'include',  // Importante para cookies de sesión
+                    credentials: 'include',
                     headers: {
-                        'X-Requested-With': 'XMLHttpRequest'  // Ayuda a identificar peticiones AJAX
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                        'X-Requested-With': 'XMLHttpRequest'
                     }
                 });
 
@@ -103,15 +129,41 @@
                     return;
                 }
 
-                // [Mantén el resto de tu lógica de manejo de respuesta]
+                const contentType = response.headers.get('content-type');
                 
+                if (contentType && contentType.includes('application/json')) {
+                    const data = await response.json();
+                    if (!response.ok) {
+                        mostrarResultado(`❌ ${data.error || 'Error desconocido'}`, true);
+                        return;
+                    }
+                    mostrarResultado(`✅ ${data.message || 'Operación exitosa'}`);
+                }
+                else if (contentType && contentType.includes('application/pdf')) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'nota_generada.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                    
+                    // Limpiar campos (excepto Excel)
+                    document.getElementById('numero').value = '';
+                    archivoInput.value = '';
+                    
+                    mostrarResultado('✅ Nota generada y descargada correctamente');
+                }
+                else {
+                    mostrarResultado('❌ Respuesta inesperada del servidor', true);
+                }
             } catch (error) {
                 console.error('Error completo:', error);
-                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica la consola para más detalles'}`, true);
+                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica la consola para detalles'}`, true);
             }
         }
-
-        // [Mantén tus otras funciones auxiliares]
     </script>
 </body>
 </html>
