@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generador de Notas PDF</title>
     <style>
-        /* [Mantén tus estilos CSS actuales] */
         body {
             font-family: Arial, sans-serif;
             max-width: 600px;
@@ -43,6 +42,7 @@
             margin-top: 20px;
             padding: 10px;
             border-radius: 4px;
+            transition: all 0.3s ease;
         }
         .success {
             background-color: #dff0d8;
@@ -56,12 +56,16 @@
             background-color: #d9edf7;
             color: #31708f;
         }
+        .cleanup {
+            background-color: #fcf8e3;
+            color: #8a6d3b;
+        }
     </style>
 </head>
 <body>
     <h1>Generador de Notas PDF</h1>
     
-    <form id="notaForm" enctype="multipart/form-data">
+    <form id="notaForm" enctype="multipart/form-data" onreset="return false;">
         {% csrf_token %}
         <div class="form-group">
             <label for="numero">Número de Cliente/Cuenta</label>
@@ -80,34 +84,54 @@
         
         <div>
             <button type="button" onclick="generarNota()">Generar Nota PDF</button>
+            <button type="button" onclick="limpiarTodo()" style="background-color: #f0ad4e;">Limpiar Todo</button>
         </div>
     </form>
     
     <div id="result"></div>
     
     <script>
-        const API_BASE_URL = 'https://agosritmo.onrender.com';
+        const API_BASE_URL = window.location.origin; // Usa la misma URL del frontend
 
-        function mostrarResultado(mensaje, esError = false, esProcesando = false) {
+        function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false) {
             const resultDiv = document.getElementById('result');
             resultDiv.textContent = mensaje;
-            resultDiv.className = esError ? 'error' : (esProcesando ? 'processing' : 'success');
+            resultDiv.className = esError ? 'error' : 
+                                 esProcesando ? 'processing' :
+                                 esLimpieza ? 'cleanup' :
+                                 'success';
+        }
+
+        function limpiarCampos() {
+            // Limpia solo número y PDF (mantiene Excel)
+            document.getElementById('numero').value = '';
+            document.getElementById('archivo').value = '';
+        }
+
+        function limpiarTodo() {
+            // Limpia todos los campos incluyendo Excel
+            document.getElementById('numero').value = '';
+            document.getElementById('archivo').value = '';
+            document.getElementById('excelFile').value = '';
+            mostrarResultado('✅ Todos los campos fueron limpiados', false, false, true);
         }
 
         async function generarNota() {
             const numero = document.getElementById('numero').value;
-            const archivo = document.getElementById('archivo').files[0];
-            const excelFile = document.getElementById('excelFile').files[0];
+            const archivoInput = document.getElementById('archivo');
+            const archivo = archivoInput.files[0];
+            const excelInput = document.getElementById('excelFile');
+            const excelFile = excelInput.files[0];
             
             if (!numero || !archivo || !excelFile) {
-                mostrarResultado('❌ Complete todos los campos', true);
+                mostrarResultado('❌ Por favor, complete todos los campos', true);
                 return;
             }
 
-            mostrarResultado('⏳ Procesando...', false, true);
+            mostrarResultado('⏳ Procesando solicitud...', false, true);
             
             try {
-                const formData = new FormData();
+                const formData = new FormData(document.getElementById('notaForm'));
                 formData.append('pdf_file', archivo);
                 formData.append('additional_data', numero);
                 formData.append('excel_file', excelFile);
@@ -118,33 +142,46 @@
                     method: 'POST',
                     body: formData,
                     headers: {
-                        'X-CSRFToken': csrfToken
+                        'X-CSRFToken': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest'
                     },
                     credentials: 'include'
                 });
 
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({ error: 'Error desconocido' }));
-                    throw new Error(error.message || 'Error del servidor');
+                if (response.status === 403) {
+                    mostrarResultado('❌ Error de autenticación CSRF', true);
+                    return;
                 }
 
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'nota_generada.pdf';
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
+                const contentType = response.headers.get('content-type');
                 
-                mostrarResultado('✅ PDF generado correctamente');
-                
+                if (contentType && contentType.includes('application/pdf')) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'nota_generada.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                    
+                    // Limpiar campos (excepto Excel)
+                    mostrarResultado('✅ Descarga completada. Limpiando campos...', false, false, true);
+                    setTimeout(() => {
+                        limpiarCampos();
+                        mostrarResultado('✅ Nota generada. Campos de número y PDF listos para nueva operación');
+                    }, 1500);
+                    
+                } else {
+                    const errorData = await response.json();
+                    mostrarResultado(`❌ ${errorData.error || 'Error del servidor'}`, true);
+                }
             } catch (error) {
-                console.error('Error detallado:', error);
-                mostrarResultado(`❌ Error: ${error.message}`, true);
+                console.error('Error completo:', error);
+                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica la consola para detalles'}`, true);
             }
         }
-        
     </script>
 </body>
 </html>
