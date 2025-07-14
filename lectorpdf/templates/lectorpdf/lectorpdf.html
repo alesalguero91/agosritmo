@@ -96,74 +96,55 @@
 
         async function generarNota() {
             const numero = document.getElementById('numero').value;
-            const archivoInput = document.getElementById('archivo');
-            const archivo = archivoInput.files[0];
-            const excelInput = document.getElementById('excelFile');
-            const excelFile = excelInput.files[0];
+            const archivo = document.getElementById('archivo').files[0];
+            const excelFile = document.getElementById('excelFile').files[0];
             
             if (!numero || !archivo || !excelFile) {
-                mostrarResultado('❌ Por favor, complete todos los campos', true);
+                mostrarResultado('❌ Complete todos los campos', true);
                 return;
             }
-            
-            mostrarResultado('⏳ Procesando solicitud...', false, true);
+
+            mostrarResultado('⏳ Procesando...', false, true);
             
             try {
-                const formData = new FormData(document.getElementById('notaForm'));
+                const formData = new FormData();
                 formData.append('pdf_file', archivo);
                 formData.append('additional_data', numero);
                 formData.append('excel_file', excelFile);
                 
-                const response = await fetch(`${API_BASE_URL}/generar-nota/`, {
+                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+                
+                const response = await fetch('/generar-nota/', {
                     method: 'POST',
                     body: formData,
-                    credentials: 'include',
                     headers: {
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
+                        'X-CSRFToken': csrfToken
+                    },
+                    credentials: 'include'
                 });
 
-                if (response.status === 403) {
-                    mostrarResultado('❌ Error de autenticación CSRF', true);
-                    return;
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ error: 'Error desconocido' }));
+                    throw new Error(error.message || 'Error del servidor');
                 }
 
-                const contentType = response.headers.get('content-type');
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'nota_generada.pdf';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
                 
-                if (contentType && contentType.includes('application/json')) {
-                    const data = await response.json();
-                    if (!response.ok) {
-                        mostrarResultado(`❌ ${data.error || 'Error desconocido'}`, true);
-                        return;
-                    }
-                    mostrarResultado(`✅ ${data.message || 'Operación exitosa'}`);
-                }
-                else if (contentType && contentType.includes('application/pdf')) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'nota_generada.pdf';
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    a.remove();
-                    
-                    // Limpiar campos (excepto Excel)
-                    document.getElementById('numero').value = '';
-                    archivoInput.value = '';
-                    
-                    mostrarResultado('✅ Nota generada y descargada correctamente');
-                }
-                else {
-                    mostrarResultado('❌ Respuesta inesperada del servidor', true);
-                }
+                mostrarResultado('✅ PDF generado correctamente');
+                
             } catch (error) {
-                console.error('Error completo:', error);
-                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica la consola para detalles'}`, true);
+                console.error('Error detallado:', error);
+                mostrarResultado(`❌ Error: ${error.message}`, true);
             }
         }
+        
     </script>
 </body>
 </html>
