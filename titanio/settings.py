@@ -8,7 +8,7 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-gbe)0#^&dn)_f34f(sxi48$ki$irnle!ju#u!%($)vtm46(og*'
-DEBUG = True  # Cambiar a False en producción
+DEBUG = False
 ALLOWED_HOSTS = ['*']
 
 # Application definition
