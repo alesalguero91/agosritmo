@@ -65,18 +65,18 @@ class NotaGeneradaView(APIView):
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
                 
-                # Buscar cliente por número de cuenta
+                # Buscar cliente por número de cuenta (convertir a int para coincidir)
                 cliente_info = df[df['cuenta'] == int(numero_cliente)].iloc[0]
                 nombre_cliente = cliente_info['nombre']
                 
-                # Limpiar nombre para usar en archivo (remover caracteres especiales)
-                nombre_cliente = re.sub(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ ]', '', nombre_cliente)
-                nombre_cliente = nombre_cliente.replace(' ', '_')
+                # Limpiar nombre para archivo (remover caracteres problemáticos)
+                nombre_cliente = re.sub(r'[\\/*?:"<>|]', '', nombre_cliente).strip()
+                nombre_cliente = nombre_cliente.replace(' ', '_')[:50]  # Limitar longitud
             except Exception as e:
                 logger.error(f"Error al obtener nombre del cliente: {str(e)}")
                 nombre_cliente = "cliente"
             
-            # Generar PDF
+            # Generar el PDF
             resultado = generar_pdf_con_texto_y_imagen(
                 file, 
                 numero_cliente,
@@ -90,18 +90,16 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Generar nombre del archivo
+            # Generar nombre del archivo con formato: Nota_NUMERO_NOMBRE_FECHA.pdf
             fecha_actual = datetime.now().strftime("%Y%m%d")
             nombre_archivo = f"Nota_{numero_cliente}_{nombre_cliente}_{fecha_actual}.pdf"
             
-            response = FileResponse(
+            # Crear respuesta con el nombre personalizado
+            response = HttpResponse(
                 resultado['pdf'],
-                content_type='application/pdf',
-                headers={
-                    'Content-Disposition': f'attachment; filename="{nombre_archivo}"',
-                    'Access-Control-Expose-Headers': 'Content-Disposition'
-                }
+                content_type='application/pdf'
             )
+            response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
             return response
             
         except Exception as e:
