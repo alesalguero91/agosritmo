@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -60,12 +60,38 @@
             background-color: #fcf8e3;
             color: #8a6d3b;
         }
+        #resultsTable {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        #resultsTable th, #resultsTable td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        #resultsTable th {
+            background-color: #f2f2f2;
+        }
+        #resultsTable tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .export-btn {
+            background-color: #2196F3;
+            margin-top: 10px;
+        }
+        .export-btn:hover {
+            background-color: #0b7dda;
+        }
+        .hidden {
+            display: none;
+        }
     </style>
 </head>
 <body>
     <h1>Generador de Notas PDF</h1>
     
-    <form id="notaForm" enctype="multipart/form-data" onreset="return false;">
+    <form id="notaForm" enctype="multipart/form-data" onsubmit="event.preventDefault();">
         {% csrf_token %}
         <div class="form-group">
             <label for="numero">Número de Cliente/Cuenta</label>
@@ -90,8 +116,27 @@
     
     <div id="result"></div>
     
+    <div id="tableContainer" class="hidden">
+        <h2>Historial de Operaciones</h2>
+        <table id="resultsTable">
+            <thead>
+                <tr>
+                    <th>N° Cuenta/Cliente</th>
+                    <th>Nombre</th>
+                    <th>DNI</th>
+                    <th>Importe</th>
+                </tr>
+            </thead>
+            <tbody id="resultsTableBody">
+                <!-- Las filas se agregarán dinámicamente -->
+            </tbody>
+        </table>
+        <button id="exportExcelBtn" class="export-btn" onclick="exportToExcel()">Exportar a Excel</button>
+    </div>
+    
     <script>
         const API_BASE_URL = window.location.origin;
+        let operationsHistory = [];
 
         function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false) {
             const resultDiv = document.getElementById('result');
@@ -114,83 +159,217 @@
             mostrarResultado('✅ Todos los campos fueron limpiados', false, false, true);
         }
 
-        async function generarNota() {
-            const numero = document.getElementById('numero').value;
-            const archivoInput = document.getElementById('archivo');
-            const archivo = archivoInput.files[0];
-            const excelInput = document.getElementById('excelFile');
-            const excelFile = excelInput.files[0];
+        function addToResultsTable(operationData) {
+            operationsHistory.push(operationData);
             
-            if (!numero || !archivo || !excelFile) {
-                mostrarResultado('❌ Por favor, complete todos los campos', true);
+            const tableBody = document.getElementById('resultsTableBody');
+            const row = document.createElement('tr');
+            
+            row.innerHTML = `
+                <td>${operationData.numero}</td>
+                <td>${operationData.nombre}</td>
+                <td>${operationData.dni}</td>
+                <td>${operationData.importe}</td>
+            `;
+            
+            tableBody.appendChild(row);
+            
+            // Mostrar la tabla si estaba oculta
+            document.getElementById('tableContainer').classList.remove('hidden');
+        }
+
+        function exportToExcel() {
+            if (operationsHistory.length === 0) {
+                mostrarResultado('❌ No hay datos para exportar', true);
                 return;
             }
 
-            mostrarResultado('⏳ Procesando solicitud...', false, true);
+            // Crear contenido CSV
+            let csvContent = "N° Cuenta/Cliente,Nombre,DNI,Importe\n";
             
+            operationsHistory.forEach(op => {
+                csvContent += `${op.numero},${op.nombre},${op.dni},${op.importe}\n`;
+            });
+
+            // Crear blob y descargar
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', `historial_notas_${new Date().toISOString().slice(0,10)}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            mostrarResultado('✅ Archivo CSV generado y descargado');
+        }
+
+        async function generarNota() {
             try {
-                const formData = new FormData(document.getElementById('notaForm'));
-                formData.append('pdf_file', archivo);
-                formData.append('additional_data', numero);
-                formData.append('excel_file', excelFile);
-                
+                // Obtener elementos del formulario
+                const numero = document.getElementById('numero').value;
+                const archivoInput = document.getElementById('archivo');
+                const excelInput = document.getElementById('excelFile');
                 const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
                 
-                const response = await fetch('/generar-nota/', {
-                    method: 'POST',
-                    body: formData,
-                    headers: {
-                        'X-CSRFToken': csrfToken,
-                        'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    credentials: 'include'
-                });
-
-                if (response.status === 403) {
-                    mostrarResultado('❌ Error de autenticación CSRF', true);
+                // Validar inputs
+                if (!numero || !archivoInput.files[0] || !excelInput.files[0]) {
+                    mostrarResultado('❌ Por favor complete todos los campos', true);
                     return;
                 }
 
-                const contentType = response.headers.get('content-type');
+                const archivo = archivoInput.files[0];
+                const excelFile = excelInput.files[0];
                 
-                if (contentType && contentType.includes('application/pdf')) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    
-                    // Obtener el nombre del archivo del encabezado Content-Disposition
-                    const contentDisposition = response.headers.get('content-disposition');
-                    let filename = 'nota_generada.pdf'; // valor por defecto
-                    
-                    if (contentDisposition) {
-                        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-                        if (filenameMatch && filenameMatch.length === 2) {
-                            filename = filenameMatch[1];
-                        }
-                    }
-                    
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    a.remove();
-                    
-                    mostrarResultado('✅ Descarga completada. Limpiando campos...', false, false, true);
-                    setTimeout(() => {
-                        limpiarCampos();
-                        mostrarResultado('✅ Nota generada. Campos de número y PDF listos para nueva operación');
-                    }, 1500);
-                    
-                } else {
-                    const errorData = await response.json();
-                    mostrarResultado(`❌ ${errorData.error || 'Error del servidor'}`, true);
+                mostrarResultado('Procesando archivos...', false, true);
+
+                // 1. Extraer texto del PDF/imagen
+                const pdfFormData = new FormData();
+                pdfFormData.append('pdf_file', archivo);
+                
+                // Debug: Mostrar lo que se está enviando
+                console.log('PDF FormData entries:');
+                for (let [key, value] of pdfFormData.entries()) {
+                    console.log(key, value);
                 }
+
+                const extractResponse = await fetch('/upload-pdf/', {
+                    method: 'POST',
+                    body: pdfFormData,
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    }
+                });
+
+                if (!extractResponse.ok) {
+                    const errorData = await extractResponse.json();
+                    throw new Error(errorData.error || 'Error al extraer texto');
+                }
+
+                const extractData = await extractResponse.json();
+                console.log('Texto extraído:', extractData.text);
+                console.log('Datos financieros:', extractData.financial_data);
+
+                // Obtener importe
+                let importe = extractData.financial_data?.amount?.toString() || "No encontrado";
+                if (importe === "No encontrado") {
+                    const importeMatch = extractData.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
+                    if (importeMatch && importeMatch[1]) {
+                        importe = importeMatch[1].replace('.', '').replace(',', '.');
+                    }
+                }
+
+                // 2. Obtener datos del cliente del Excel
+                const excelData = await parseExcel(excelFile, numero);
+                
+                // 3. Generar el PDF final
+                const notaFormData = new FormData();
+                notaFormData.append('pdf_file', archivo);
+                notaFormData.append('additional_data', numero);
+                notaFormData.append('excel_file', excelFile);
+                
+                // Debug: Mostrar FormData final
+                console.log('Nota FormData entries:');
+                for (let [key, value] of notaFormData.entries()) {
+                    console.log(key, value);
+                }
+
+                const response = await fetch('/generar-nota/', {
+                    method: 'POST',
+                    body: notaFormData,
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Error al generar la nota');
+                }
+
+                // Manejar descarga del PDF
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                
+                // Crear nombre de archivo con datos del cliente
+                const nombreCliente = excelData.nombre || 'cliente';
+                const dniCliente = excelData.dni || '';
+                const fecha = new Date().toISOString().slice(0, 10);
+                a.download = `Nota_${numero}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
+                
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+
+                // Agregar a la tabla de resultados
+                addToResultsTable({
+                    numero: numero,
+                    nombre: excelData.nombre || 'No encontrado',
+                    dni: excelData.dni || 'No encontrado',
+                    importe: importe
+                });
+
+                mostrarResultado('✅ Nota generada y descargada correctamente');
+                
             } catch (error) {
                 console.error('Error completo:', error);
-                mostrarResultado(`❌ Error de conexión: ${error.message || 'Verifica la consola para detalles'}`, true);
+                mostrarResultado(`❌ Error: ${error.message || 'Verifica la consola para detalles'}`, true);
             }
         }
+
+        async function parseExcel(excelFile, numeroCliente) {
+            return new Promise((resolve, reject) => {
+                try {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                            
+                            // Búsqueda insensible a mayúsculas/minúsculas
+                            const findColumn = (row, possibleNames) => {
+                                const lowerNames = possibleNames.map(n => n.toLowerCase());
+                                for (const key in row) {
+                                    if (lowerNames.includes(key.toLowerCase())) {
+                                        return row[key];
+                                    }
+                                }
+                                return null;
+                            };
+                            
+                            const cliente = jsonData.find(row => {
+                                const cuenta = findColumn(row, ['cuenta', 'Cuenta', 'CUENTA', 'account']);
+                                return cuenta && cuenta.toString() === numeroCliente.toString();
+                            });
+                            
+                            if (!cliente) {
+                                throw new Error(`Cliente con número ${numeroCliente} no encontrado`);
+                            }
+                            
+                            resolve({
+                                nombre: findColumn(cliente, ['nombre', 'Nombre', 'NOMBRE', 'name']) || '',
+                                dni: findColumn(cliente, ['dni', 'DNI', 'documento']) || ''
+                            });
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    reader.onerror = () => reject(new Error('Error al leer el archivo Excel'));
+                    reader.readAsArrayBuffer(excelFile);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        }
     </script>
+    
+    <!-- Incluir la biblioteca SheetJS para manejar Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </body>
 </html>

@@ -19,7 +19,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'corsheaders',
+ #   'corsheaders',
     'rest_framework',
     'lectorpdf',
     'clientes',
@@ -28,7 +28,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
+#    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -59,7 +59,9 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'titanio.wsgi.application'
+#Aquil 
+
+#WSGI_APPLICATION = 'titanio.wsgi.application'
 
 # Database (no necesitas esta configuración si no usas DB)
 DATABASES = {

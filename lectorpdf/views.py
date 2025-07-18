@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 import re
 
+
 logger = logging.getLogger(__name__)
 
 @ensure_csrf_cookie
@@ -22,22 +23,46 @@ def subir_archivo_view(request):
 class PDFUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
     
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
         try:
+            # Debug: Log the incoming request data
+            logger.info(f"Request data: {request.data}")
+            logger.info(f"Files in request: {request.FILES}")
+            
+            # Make sure we're getting the file properly
+            if 'pdf_file' not in request.FILES:
+                logger.error("No file found in request.FILES")
+                return Response(
+                    {'error': 'No file was submitted'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             serializer = PDFUploadSerializer(data=request.data)
             if not serializer.is_valid():
-                logger.error(f"Error de validación: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                logger.error(f"Validation error: {serializer.errors}")
+                return Response(
+                    serializer.errors, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
             file = serializer.validated_data['pdf_file']
-            additional_data = serializer.validated_data.get('additional_data')
+            logger.info(f"File received: {file.name}, size: {file.size}")
             
-            data = process_pdf_or_image(file, additional_data=additional_data)
-            return Response(data, status=status.HTTP_200_OK)
+            data = process_pdf_or_image(file)
+            
+            logger.info(f"Extracted text: {data.get('full_text')}")
+            
+            return Response({
+                'text': data.get('full_text', ''),
+                'financial_data': data.get('financial_data', {})
+            }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            logger.error(f"Error en PDFUploadView: {str(e)}")
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Error in PDFUploadView: {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )        
 
 class NotaGeneradaView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -60,7 +85,12 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Procesar Excel para obtener datos del cliente
+            # Primero: Procesar el PDF/Imagen para extraer el texto
+            texto_extraido = process_pdf_or_image(file)
+            logger.info(f"Texto extraído del archivo: {texto_extraido}")
+            print(f"\n=== TEXTO EXTRAÍDO DEL ARCHIVO ===\n{texto_extraido}\n=====================\n")
+            
+            # Segundo: Procesar Excel para obtener datos del cliente
             try:
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
@@ -79,7 +109,7 @@ class NotaGeneradaView(APIView):
                 nombre_cliente = "cliente"
                 dni_cliente = ""
             
-            # Generar el PDF
+            # Tercero: Generar el PDF
             resultado = generar_pdf_con_texto_y_imagen(
                 file, 
                 numero_cliente,
@@ -103,6 +133,11 @@ class NotaGeneradaView(APIView):
                 content_type='application/pdf'
             )
             response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+            
+            # También devolver el texto extraído en la respuesta (opcional)
+            # Si quieres que el texto aparezca en la respuesta HTTP:
+            # response['X-Extracted-Text'] = texto_extraido[:500]  # Limitar tamaño
+            
             return response
             
         except Exception as e:
@@ -145,6 +180,7 @@ class ExcelUploadView(APIView):
                 {'error': 'Error al procesar Excel'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
 
 """    
 class NotaGeneradaViewEnWord(APIView):

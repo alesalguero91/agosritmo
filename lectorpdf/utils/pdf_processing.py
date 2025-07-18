@@ -1,10 +1,14 @@
 # documentos/utils/pdf_processing.py
 
 from PIL import Image
-import fitz  # PyMuPDF
+import fitz 
 import pytesseract
 import io
 import re
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def convert_image_to_pdf(image_file):
     image = Image.open(image_file)
@@ -50,27 +54,41 @@ def extract_financial_data(text):
     }
 
 def process_pdf_or_image(file):
-    is_pdf = (
-        hasattr(file, 'content_type') and file.content_type == 'application/pdf'
-    ) or (
-        hasattr(file, 'name') and file.name.lower().endswith('.pdf')
-    )
+    """
+    Procesa archivo PDF o imagen para extraer texto y datos financieros
+    :param file: Archivo subido (PDF o imagen)
+    :return: Dict con texto completo y datos financieros
+    """
+    try:
+        is_pdf = (
+            hasattr(file, 'content_type') and file.content_type == 'application/pdf'
+        ) or (
+            hasattr(file, 'name') and file.name.lower().endswith('.pdf')
+        )
 
-    if not is_pdf:
-        file = convert_image_to_pdf(file)
+        # Convertir imagen a PDF si es necesario
+        if not is_pdf:
+            file = convert_image_to_pdf(file)
 
-    text = extract_text_from_pdf(file)
+        # Primero intentar extracción directa de texto
+        text = extract_text_from_pdf(file)
 
-    if not text.strip():
-        file.seek(0)
-        text = perform_ocr_on_pdf(file)
+        # Si no se extrajo texto, intentar OCR
+        if not text.strip():
+            file.seek(0)  # Reiniciar posición del archivo
+            text = perform_ocr_on_pdf(file)
 
-    if not text.strip():
-        raise ValueError("No se pudo extraer texto del archivo.")
+        if not text.strip():
+            raise ValueError("No se pudo extraer texto del archivo.")
 
-    financial_data = extract_financial_data(text)
+        # Extraer datos financieros
+        financial_data = extract_financial_data(text)
 
-    return {
-        'full_text': text,
-        'financial_data': financial_data
-    }
+        return {
+            'full_text': text,
+            'financial_data': financial_data
+        }
+
+    except Exception as e:
+        logger.error(f"Error en process_pdf_or_image: {str(e)}", exc_info=True)
+        raise ValueError(f"Error procesando archivo: {str(e)}")
