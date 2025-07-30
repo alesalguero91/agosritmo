@@ -4,12 +4,14 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import fitz
 import io
+import pandas as pd
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph, Frame
-from reportlab.lib.enums import TA_LEFT
-import pandas as pd
 
 def pdf_to_image(pdf_file):
+    """Convierte la primera página de un PDF a imagen"""
     pdf_file.seek(0)
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
     page = doc.load_page(0)
@@ -20,48 +22,33 @@ def pdf_to_image(pdf_file):
 
 def buscar_cliente_en_excel(df, cliente_id):
     """Busca un cliente en el DataFrame del Excel por número de cliente/cuenta"""
-    # Normalizar nombres de columnas
     df.columns = df.columns.str.lower().str.strip()
-    
-    # Convertir el ID del cliente a string y limpiar
     cliente_str = str(cliente_id).strip()
     
-    # Columnas donde podría estar el número de cuenta/cliente
     posibles_columnas = ['cuenta', 'nro cuenta', 'nro de cuenta', 'numero cuenta', 
                        'numero de cuenta', 'cliente', 'nrocliente', 'numerocliente', 
                        'nro cliente', 'numero cliente', 'idcliente', 'id']
     
-    # Encontrar la columna correcta
-    columna_encontrada = None
-    for col in posibles_columnas:
-        if col in df.columns:
-            columna_encontrada = col
-            break
+    columna_encontrada = next((col for col in posibles_columnas if col in df.columns), None)
     
     if not columna_encontrada:
         raise ValueError("No se encontró columna con número de cuenta/cliente en el Excel")
     
-    # Buscar el cliente (comparando como strings)
     try:
-        # Convertir la columna a string y limpiar
         df[columna_encontrada] = df[columna_encontrada].astype(str).str.strip()
-        
-        # Primera búsqueda exacta
         cliente_data = df[df[columna_encontrada] == cliente_str]
         
-        # Si no se encuentra, probar sin ceros a la izquierda
         if cliente_data.empty:
             cliente_str_sin_ceros = cliente_str.lstrip('0')
             cliente_data = df[df[columna_encontrada].str.lstrip('0') == cliente_str_sin_ceros]
             
             if cliente_data.empty:
-                return None  # Cliente no encontrado
+                return None
         
         datos = cliente_data.iloc[0].to_dict()
     except Exception as e:
         raise ValueError(f"Error al buscar cliente: {str(e)}")
     
-    # Obtener DNI y Nombre (ahora obligatorios)
     try:
         dni = next(str(datos[col]) for col in ['dni', 'documento', 'nrodocumento', 'cedula'] 
                   if col in datos and pd.notna(datos[col]))
@@ -78,9 +65,6 @@ def buscar_cliente_en_excel(df, cliente_id):
 
 def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_data=None):
     try:
-        print("Iniciando generación de PDF...")
-        print("Número de cuenta recibido:", additional_data)
-        
         if not excel_data:
             return {
                 'error': True,
@@ -89,7 +73,6 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
         
         excel_data.seek(0)
         df = pd.read_excel(excel_data)
-        print("Primeras filas del Excel:", df.head().to_dict())
         
         dats = buscar_cliente_en_excel(df, additional_data)
         if dats is None:
@@ -98,23 +81,37 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
                 'message': f'La cuenta {additional_data} no existe en el archivo Excel'
             }
         
-        print("Datos encontrados:", dats)
-        
-        TEXTO_NOTA = f"""PARA: ADMINISTRACIÓN
-DE: GESTIÓN Y MORA
-ASUNTO: AUTORIZACIÓN DE PAGO
+        # Texto bien formateado
+        TEXTO_NOTA = f"""<b>_________________________________________________________________________________________</b><br/><br/>
+        <b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO<br/><br/>
 
-FECHA DE PRESENTACIÓN DE NOTA:
+<b>FECHA DE PRESENTACIÓN DE NOTA: 30/07/2025</b><br/>
 
-CUENTA: {dats['nroCliente']}
-NOMBRE: {dats['Nombre']}
-DNI: {dats['dni']}
 
-Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de referencia MACRO CTA Nº 314000023459615.
+<b>_________________________________________________________________________________________</b>
+<br/><br/>
 
-Sin más, atte.
+<b>Cuenta: </b>{dats['nroCliente']}<br/>
+
+<b>Nombre:</b> {dats['Nombre']}<br/>
+
+<b>DNI: </b>{dats['dni']}<br/>
+<b>_________________________________________________________________________________________</b><br/><br/>
+
+Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
+referencia mencionada mas arriba, el pago de la misma fue realizado mediante transferencia bancaria <b>al BANCO 
+MACRO</b> CTA Nº <b>3140000023459615</b> -<br/><br/>
+
+Sin más atte.
 """
-        # Resto del código de generación de PDF...
+        # Configurar fuente
+        try:
+            pdfmetrics.registerFont(TTFont('Times-Roman', 'Times New Roman.ttf'))
+            font_name = 'Times-Roman'
+        except:
+            font_name = 'Helvetica'
+
+        # Procesar imagen/PDF de entrada
         if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
             image = pdf_to_image(image_or_pdf_file)
         else:
@@ -124,43 +121,40 @@ Sin más, atte.
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
 
-        # Configuración de márgenes y estilo
+        # Configuración de formato con Paragraph
         left_margin = 50
         right_margin = 50
-        top_margin = height - 50
+        top_margin = height - 70
         available_width = width - left_margin - right_margin
-        line_height = 14
-        font_size = 11
+        
+        # Obtener estilos y crear estilo personalizado
+        styles = getSampleStyleSheet()
+        custom_style = ParagraphStyle(
+            name='Custom',
+            parent=styles['Normal'],
+            fontName=font_name,
+            fontSize=10,
+            leading=12,
+            spaceBefore=6,
+            spaceAfter=6
+        )
+        
+        # Crear frame para el texto
+        frame = Frame(
+            left_margin, 100,  # Posición Y ajustada
+            available_width, top_margin - 100,
+            leftPadding=0,
+            bottomPadding=0,
+            rightPadding=0,
+            topPadding=0,
+            showBoundary=0  # Cambiar a 1 para debug
+        )
+        
+        # Convertir texto a Paragraph y añadir al frame
+        story = [Paragraph(TEXTO_NOTA, custom_style)]
+        frame.addFromList(story, c)
 
-        # Dividir el texto en líneas
-        text_lines = []
-        for line in TEXTO_NOTA.split("\n"):
-            if not line.strip():
-                text_lines.append(line)
-                continue
-                
-            words = line.split()
-            current_line = words[0] if words else ""
-            for word in words[1:]:
-                test_line = f"{current_line} {word}"
-                if c.stringWidth(test_line, "Helvetica", font_size) <= available_width:
-                    current_line = test_line
-                else:
-                    text_lines.append(current_line)
-                    current_line = word
-            text_lines.append(current_line)
-
-        # Escribir texto en el PDF
-        y_position = top_margin
-        for line in text_lines:
-            if line.strip(): 
-                c.setFont("Helvetica", font_size)
-                c.drawString(left_margin, y_position, line)
-            y_position -= line_height
-
-        y_position -= 20
-
-        # Procesamiento de la imagen
+        # Procesar y añadir imagen
         image_width, image_height = image.size
         max_image_width = width * 0.6
         ratio = max_image_width / image_width
@@ -171,11 +165,11 @@ Sin más, atte.
         image_resized.save(img_io, format="PNG")
         img_io.seek(0)
 
-        # Añadir imagen al PDF
+        # Posición de la imagen (debajo del texto)
         c.drawImage(
             ImageReader(img_io),
             x=(width - max_image_width) / 2,
-            y=y_position - resized_height,
+            y=50,  # Posición fija en la parte inferior
             width=max_image_width,
             height=resized_height
         )
@@ -195,8 +189,6 @@ Sin más, atte.
             'error': True,
             'message': f'Error al generar PDF: {str(e)}'
         }
-    
-
     
 
 """
