@@ -19,7 +19,7 @@
             margin-bottom: 5px;
             font-weight: bold;
         }
-        input[type="text"], input[type="file"] {
+        input[type="file"] {
             width: 100%;
             padding: 8px;
             border: 1px solid #ddd;
@@ -86,6 +86,19 @@
         .hidden {
             display: none;
         }
+        #fileInfo {
+            margin-top: 5px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .file-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .numero-cliente {
+            color: #4CAF50;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -93,14 +106,14 @@
     
     <form id="notaForm" enctype="multipart/form-data" onsubmit="event.preventDefault();">
         {% csrf_token %}
-        <div class="form-group">
-            <label for="numero">Número de Cliente/Cuenta</label>
-            <input type="text" id="numero" name="numero" required>
-        </div>
         
         <div class="form-group">
             <label for="archivo">Comprobante (PDF o imagen):</label>
             <input type="file" id="archivo" name="archivo" accept=".pdf,.jpg,.jpeg,.png" required>
+            <div id="fileInfo">
+                <span id="fileNameDisplay">Ningún archivo seleccionado</span><br>
+                <span id="numeroClienteDisplay">Número de cliente detectado: <span class="numero-cliente">-</span></span>
+            </div>
         </div>
         
         <div class="form-group">
@@ -137,6 +150,40 @@
     <script>
         const API_BASE_URL = window.location.origin;
         let operationsHistory = [];
+        let currentNumeroCliente = null;
+
+        // Mostrar información del archivo y extraer número de cliente
+        document.getElementById('archivo').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Mostrar nombre del archivo
+            document.getElementById('fileNameDisplay').textContent = `Archivo: ${file.name}`;
+            
+            // Extraer número de cliente del nombre del archivo
+            currentNumeroCliente = extractNumeroClienteFromFileName(file.name);
+            
+            // Mostrar número de cliente detectado
+            const numeroDisplay = document.querySelector('#numeroClienteDisplay .numero-cliente');
+            numeroDisplay.textContent = currentNumeroCliente || 'No detectado';
+            numeroDisplay.style.color = currentNumeroCliente ? '#4CAF50' : '#a94442';
+        });
+
+        // Función para extraer el número de cliente del nombre del archivo
+        function extractNumeroClienteFromFileName(fileName) {
+            // Eliminar la extensión del archivo
+            const nameWithoutExt = fileName.split('.').slice(0, -1).join('.');
+            
+            // Buscar secuencias de números en el nombre del archivo
+            const matches = nameWithoutExt.match(/\d+/g);
+            
+            if (matches && matches.length > 0) {
+                // Tomar el primer grupo de números encontrado como número de cliente
+                return matches[0];
+            }
+            
+            return null;
+        }
 
         function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false) {
             const resultDiv = document.getElementById('result');
@@ -147,15 +194,12 @@
                                  'success';
         }
 
-        function limpiarCampos() {
-            document.getElementById('numero').value = '';
-            document.getElementById('archivo').value = '';
-        }
-
         function limpiarTodo() {
-            document.getElementById('numero').value = '';
             document.getElementById('archivo').value = '';
             document.getElementById('excelFile').value = '';
+            document.getElementById('fileNameDisplay').textContent = 'Ningún archivo seleccionado';
+            document.querySelector('#numeroClienteDisplay .numero-cliente').textContent = '-';
+            currentNumeroCliente = null;
             mostrarResultado('✅ Todos los campos fueron limpiados', false, false, true);
         }
 
@@ -208,14 +252,19 @@
         async function generarNota() {
             try {
                 // Obtener elementos del formulario
-                const numero = document.getElementById('numero').value;
                 const archivoInput = document.getElementById('archivo');
                 const excelInput = document.getElementById('excelFile');
                 const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
                 
                 // Validar inputs
-                if (!numero || !archivoInput.files[0] || !excelInput.files[0]) {
+                if (!archivoInput.files[0] || !excelInput.files[0]) {
                     mostrarResultado('❌ Por favor complete todos los campos', true);
+                    return;
+                }
+
+                // Validar que se haya detectado un número de cliente
+                if (!currentNumeroCliente) {
+                    mostrarResultado('❌ No se pudo detectar el número de cliente del nombre del archivo. Asegúrese de que el nombre del archivo contenga números.', true);
                     return;
                 }
 
@@ -228,12 +277,6 @@
                 const pdfFormData = new FormData();
                 pdfFormData.append('pdf_file', archivo);
                 
-                // Debug: Mostrar lo que se está enviando
-                console.log('PDF FormData entries:');
-                for (let [key, value] of pdfFormData.entries()) {
-                    console.log(key, value);
-                }
-
                 const extractResponse = await fetch('/upload-pdf/', {
                     method: 'POST',
                     body: pdfFormData,
@@ -261,20 +304,14 @@
                 }
 
                 // 2. Obtener datos del cliente del Excel
-                const excelData = await parseExcel(excelFile, numero);
+                const excelData = await parseExcel(excelFile, currentNumeroCliente);
                 
                 // 3. Generar el PDF final
                 const notaFormData = new FormData();
                 notaFormData.append('pdf_file', archivo);
-                notaFormData.append('additional_data', numero);
+                notaFormData.append('additional_data', currentNumeroCliente);
                 notaFormData.append('excel_file', excelFile);
                 
-                // Debug: Mostrar FormData final
-                console.log('Nota FormData entries:');
-                for (let [key, value] of notaFormData.entries()) {
-                    console.log(key, value);
-                }
-
                 const response = await fetch('/generar-nota/', {
                     method: 'POST',
                     body: notaFormData,
@@ -298,7 +335,7 @@
                 const nombreCliente = excelData.nombre || 'cliente';
                 const dniCliente = excelData.dni || '';
                 const fecha = new Date().toISOString().slice(0, 10);
-                a.download = `Nota_${numero}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
+                a.download = `Nota_${currentNumeroCliente}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
                 
                 document.body.appendChild(a);
                 a.click();
@@ -307,7 +344,7 @@
 
                 // Agregar a la tabla de resultados
                 addToResultsTable({
-                    numero: numero,
+                    numero: currentNumeroCliente,
                     nombre: excelData.nombre || 'No encontrado',
                     dni: excelData.dni || 'No encontrado',
                     importe: importe
