@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -37,6 +37,10 @@
         }
         button:hover {
             background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
         }
         #result {
             margin-top: 20px;
@@ -72,9 +76,17 @@
         }
         #resultsTable th {
             background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
         }
         #resultsTable tr:nth-child(even) {
             background-color: #f9f9f9;
+        }
+        #resultsTable tr.processing-row {
+            background-color: #e6f3ff;
+        }
+        #resultsTable tr.error-row {
+            background-color: #ffebee;
         }
         .export-btn {
             background-color: #2196F3;
@@ -99,6 +111,55 @@
             color: #4CAF50;
             font-weight: bold;
         }
+        #selectedFilesList {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .file-status {
+            font-style: italic;
+            color: #666;
+        }
+        .status-pending {
+            color: #FF9800;
+        }
+        .status-processing {
+            color: #2196F3;
+        }
+        .status-completed {
+            color: #4CAF50;
+        }
+        .status-error {
+            color: #F44336;
+        }
+        .progress-container {
+            width: 100%;
+            background-color: #f1f1f1;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .progress-bar {
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.3s;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+        }
     </style>
 </head>
 <body>
@@ -108,11 +169,11 @@
         {% csrf_token %}
         
         <div class="form-group">
-            <label for="archivo">Comprobante (PDF o imagen):</label>
-            <input type="file" id="archivo" name="archivo" accept=".pdf,.jpg,.jpeg,.png" required>
+            <label for="archivos">Comprobantes (PDF o imágenes):</label>
+            <input type="file" id="archivos" name="archivos" accept=".pdf,.jpg,.jpeg,.png" multiple required>
             <div id="fileInfo">
-                <span id="fileNameDisplay">Ningún archivo seleccionado</span><br>
-                <span id="numeroClienteDisplay">Número de cliente detectado: <span class="numero-cliente">-</span></span>
+                <div id="selectedFilesCount">0 archivos seleccionados</div>
+                <div id="selectedFilesList"></div>
             </div>
         </div>
         
@@ -121,53 +182,77 @@
             <input type="file" id="excelFile" name="excelFile" accept=".xlsx,.xls" required>
         </div>
         
+        <div class="progress-container hidden" id="progressContainer">
+            <div class="progress-bar" id="progressBar">0%</div>
+        </div>
+        
         <div>
-            <button type="button" onclick="generarNota()">Generar Nota PDF</button>
+            <button type="button" id="generateBtn" onclick="procesarArchivos()">Generar Notas PDF</button>
             <button type="button" onclick="limpiarTodo()" style="background-color: #f0ad4e;">Limpiar Todo</button>
+            <button id="exportExcelBtn" class="export-btn hidden" onclick="exportToExcel()">Exportar a Excel</button>
         </div>
     </form>
     
     <div id="result"></div>
     
-    <div id="tableContainer" class="hidden">
+    <div id="tableContainer">
         <h2>Historial de Operaciones</h2>
         <table id="resultsTable">
             <thead>
                 <tr>
-                    <th>N° Cuenta/Cliente</th>
+                    <th>Archivo</th>
+                    <th>N° Cliente</th>
                     <th>Nombre</th>
                     <th>DNI</th>
                     <th>Importe</th>
+                    <th>Estado</th>
                 </tr>
             </thead>
             <tbody id="resultsTableBody">
                 <!-- Las filas se agregarán dinámicamente -->
             </tbody>
         </table>
-        <button id="exportExcelBtn" class="export-btn" onclick="exportToExcel()">Exportar a Excel</button>
     </div>
     
     <script>
         const API_BASE_URL = window.location.origin;
         let operationsHistory = [];
-        let currentNumeroCliente = null;
+        let selectedFiles = [];
+        let currentProcessingIndex = 0;
+        let isProcessing = false;
 
-        // Mostrar información del archivo y extraer número de cliente
-        document.getElementById('archivo').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            // Mostrar nombre del archivo
-            document.getElementById('fileNameDisplay').textContent = `Archivo: ${file.name}`;
-            
-            // Extraer número de cliente del nombre del archivo
-            currentNumeroCliente = extractNumeroClienteFromFileName(file.name);
-            
-            // Mostrar número de cliente detectado
-            const numeroDisplay = document.querySelector('#numeroClienteDisplay .numero-cliente');
-            numeroDisplay.textContent = currentNumeroCliente || 'No detectado';
-            numeroDisplay.style.color = currentNumeroCliente ? '#4CAF50' : '#a94442';
+        // Mostrar información de los archivos seleccionados
+        document.getElementById('archivos').addEventListener('change', function(e) {
+            selectedFiles = Array.from(e.target.files);
+            updateSelectedFilesList();
         });
+
+        function updateSelectedFilesList() {
+            const filesListDiv = document.getElementById('selectedFilesList');
+            const filesCountDiv = document.getElementById('selectedFilesCount');
+            
+            filesCountDiv.textContent = `${selectedFiles.length} archivo(s) seleccionado(s)`;
+            
+            if (selectedFiles.length === 0) {
+                filesListDiv.innerHTML = '<p>No hay archivos seleccionados</p>';
+                return;
+            }
+            
+            filesListDiv.innerHTML = '';
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                
+                const numeroCliente = extractNumeroClienteFromFileName(file.name);
+                const clienteDisplay = numeroCliente ? `(Cliente: ${numeroCliente})` : '(N° cliente no detectado)';
+                
+                fileItem.innerHTML = `
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-status status-pending">Pendiente</span>
+                `;
+                filesListDiv.appendChild(fileItem);
+            });
+        }
 
         // Función para extraer el número de cliente del nombre del archivo
         function extractNumeroClienteFromFileName(fileName) {
@@ -195,12 +280,20 @@
         }
 
         function limpiarTodo() {
-            document.getElementById('archivo').value = '';
+            document.getElementById('archivos').value = '';
             document.getElementById('excelFile').value = '';
-            document.getElementById('fileNameDisplay').textContent = 'Ningún archivo seleccionado';
-            document.querySelector('#numeroClienteDisplay .numero-cliente').textContent = '-';
-            currentNumeroCliente = null;
+            document.getElementById('selectedFilesList').innerHTML = '<p>No hay archivos seleccionados</p>';
+            document.getElementById('selectedFilesCount').textContent = '0 archivos seleccionados';
+            selectedFiles = [];
             mostrarResultado('✅ Todos los campos fueron limpiados', false, false, true);
+            document.getElementById('progressContainer').classList.add('hidden');
+        }
+
+        function updateProgress(processed, total) {
+            const progress = Math.round((processed / total) * 100);
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${progress}%`;
         }
 
         function addToResultsTable(operationData) {
@@ -208,18 +301,51 @@
             
             const tableBody = document.getElementById('resultsTableBody');
             const row = document.createElement('tr');
+            row.id = `row-${operationData.id}`;
+            
+            if (operationData.estado === 'Procesando') {
+                row.classList.add('processing-row');
+            } else if (operationData.estado === 'Error') {
+                row.classList.add('error-row');
+            }
             
             row.innerHTML = `
+                <td>${operationData.archivo}</td>
                 <td>${operationData.numero}</td>
                 <td>${operationData.nombre}</td>
                 <td>${operationData.dni}</td>
                 <td>${operationData.importe}</td>
+                <td class="status-${operationData.estado.toLowerCase()}">${operationData.estado}</td>
             `;
             
-            tableBody.appendChild(row);
+            // Insertar al principio de la tabla
+            if (tableBody.firstChild) {
+                tableBody.insertBefore(row, tableBody.firstChild);
+            } else {
+                tableBody.appendChild(row);
+            }
             
-            // Mostrar la tabla si estaba oculta
-            document.getElementById('tableContainer').classList.remove('hidden');
+            // Mostrar el botón de exportar si hay datos
+            document.getElementById('exportExcelBtn').classList.remove('hidden');
+        }
+
+        function updateRowStatus(id, newStatus, importe = '') {
+            const row = document.getElementById(`row-${id}`);
+            if (row) {
+                const statusCell = row.querySelector('td:last-child');
+                statusCell.textContent = newStatus;
+                statusCell.className = `status-${newStatus.toLowerCase()}`;
+                
+                if (newStatus === 'Error') {
+                    row.classList.add('error-row');
+                    row.classList.remove('processing-row');
+                } else if (newStatus === 'Completado') {
+                    row.classList.remove('processing-row');
+                    if (importe) {
+                        row.cells[4].textContent = importe;
+                    }
+                }
+            }
         }
 
         function exportToExcel() {
@@ -228,11 +354,19 @@
                 return;
             }
 
-            // Crear contenido CSV
-            let csvContent = "N° Cuenta/Cliente,Nombre,DNI,Importe\n";
+            // Filtrar solo las operaciones completadas
+            const completedOperations = operationsHistory.filter(op => op.estado === 'Completado');
             
-            operationsHistory.forEach(op => {
-                csvContent += `${op.numero},${op.nombre},${op.dni},${op.importe}\n`;
+            if (completedOperations.length === 0) {
+                mostrarResultado('❌ No hay operaciones completadas para exportar', true);
+                return;
+            }
+
+            // Crear contenido CSV
+            let csvContent = "Archivo,N° Cliente,Nombre,DNI,Importe,Estado\n";
+            
+            completedOperations.forEach(op => {
+                csvContent += `"${op.archivo}",${op.numero},"${op.nombre}",${op.dni},${op.importe},${op.estado}\n`;
             });
 
             // Crear blob y descargar
@@ -249,113 +383,154 @@
             mostrarResultado('✅ Archivo CSV generado y descargado');
         }
 
-        async function generarNota() {
-            try {
-                // Obtener elementos del formulario
-                const archivoInput = document.getElementById('archivo');
-                const excelInput = document.getElementById('excelFile');
-                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-                
-                // Validar inputs
-                if (!archivoInput.files[0] || !excelInput.files[0]) {
-                    mostrarResultado('❌ Por favor complete todos los campos', true);
-                    return;
-                }
-
-                // Validar que se haya detectado un número de cliente
-                if (!currentNumeroCliente) {
-                    mostrarResultado('❌ No se pudo detectar el número de cliente del nombre del archivo. Asegúrese de que el nombre del archivo contenga números.', true);
-                    return;
-                }
-
-                const archivo = archivoInput.files[0];
-                const excelFile = excelInput.files[0];
-                
-                mostrarResultado('Procesando archivos...', false, true);
-
-                // 1. Extraer texto del PDF/imagen
-                const pdfFormData = new FormData();
-                pdfFormData.append('pdf_file', archivo);
-                
-                const extractResponse = await fetch('/upload-pdf/', {
-                    method: 'POST',
-                    body: pdfFormData,
-                    headers: {
-                        'X-CSRFToken': csrfToken
-                    }
-                });
-
-                if (!extractResponse.ok) {
-                    const errorData = await extractResponse.json();
-                    throw new Error(errorData.error || 'Error al extraer texto');
-                }
-
-                const extractData = await extractResponse.json();
-                console.log('Texto extraído:', extractData.text);
-                console.log('Datos financieros:', extractData.financial_data);
-
-                // Obtener importe
-                let importe = extractData.financial_data?.amount?.toString() || "No encontrado";
-                if (importe === "No encontrado") {
-                    const importeMatch = extractData.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
-                    if (importeMatch && importeMatch[1]) {
-                        importe = importeMatch[1].replace('.', '').replace(',', '.');
-                    }
-                }
-
-                // 2. Obtener datos del cliente del Excel
-                const excelData = await parseExcel(excelFile, currentNumeroCliente);
-                
-                // 3. Generar el PDF final
-                const notaFormData = new FormData();
-                notaFormData.append('pdf_file', archivo);
-                notaFormData.append('additional_data', currentNumeroCliente);
-                notaFormData.append('excel_file', excelFile);
-                
-                const response = await fetch('/generar-nota/', {
-                    method: 'POST',
-                    body: notaFormData,
-                    headers: {
-                        'X-CSRFToken': csrfToken
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Error al generar la nota');
-                }
-
-                // Manejar descarga del PDF
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                
-                // Crear nombre de archivo con datos del cliente
-                const nombreCliente = excelData.nombre || 'cliente';
-                const dniCliente = excelData.dni || '';
-                const fecha = new Date().toISOString().slice(0, 10);
-                a.download = `Nota_${currentNumeroCliente}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
-                
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-
-                // Agregar a la tabla de resultados
-                addToResultsTable({
-                    numero: currentNumeroCliente,
-                    nombre: excelData.nombre || 'No encontrado',
-                    dni: excelData.dni || 'No encontrado',
-                    importe: importe
-                });
-
-                mostrarResultado('✅ Nota generada y descargada correctamente');
-                
-            } catch (error) {
-                console.error('Error completo:', error);
-                mostrarResultado(`❌ Error: ${error.message || 'Verifica la consola para detalles'}`, true);
+        async function procesarArchivos() {
+            if (isProcessing) return;
+            
+            const excelInput = document.getElementById('excelFile');
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const generateBtn = document.getElementById('generateBtn');
+            
+            // Validar inputs
+            if (selectedFiles.length === 0 || !excelInput.files[0]) {
+                mostrarResultado('❌ Por favor complete todos los campos', true);
+                return;
             }
+
+            isProcessing = true;
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Procesando...';
+            document.getElementById('progressContainer').classList.remove('hidden');
+            updateProgress(0, selectedFiles.length);
+            
+            // Procesar cada archivo secuencialmente
+            for (let i = 0; i < selectedFiles.length; i++) {
+                currentProcessingIndex = i;
+                const archivo = selectedFiles[i];
+                const numeroCliente = extractNumeroClienteFromFileName(archivo.name);
+                
+                // Agregar a la tabla inmediatamente como "Procesando"
+                const operationId = `op-${Date.now()}-${i}`;
+                addToResultsTable({
+                    id: operationId,
+                    archivo: archivo.name,
+                    numero: numeroCliente || 'N/A',
+                    nombre: 'Procesando...',
+                    dni: 'Procesando...',
+                    importe: 'Procesando...',
+                    estado: 'Procesando'
+                });
+                
+                try {
+                    if (!numeroCliente) {
+                        throw new Error('No se pudo detectar el número de cliente del nombre del archivo');
+                    }
+
+                    // 1. Extraer texto del PDF/imagen
+                    const pdfFormData = new FormData();
+                    pdfFormData.append('pdf_file', archivo);
+                    
+                    const extractResponse = await fetch('/upload-pdf/', {
+                        method: 'POST',
+                        body: pdfFormData,
+                        headers: {
+                            'X-CSRFToken': csrfToken
+                        }
+                    });
+
+                    if (!extractResponse.ok) {
+                        const errorData = await extractResponse.json();
+                        throw new Error(errorData.error || 'Error al extraer texto');
+                    }
+
+                    const extractData = await extractResponse.json();
+                    console.log('Texto extraído:', extractData.text);
+
+                    // Obtener importe
+                    let importe = extractData.financial_data?.amount?.toString() || "No encontrado";
+                    if (importe === "No encontrado") {
+                        const importeMatch = extractData.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
+                        if (importeMatch && importeMatch[1]) {
+                            importe = importeMatch[1].replace('.', '').replace(',', '.');
+                        }
+                    }
+
+                    // 2. Obtener datos del cliente del Excel
+                    const excelData = await parseExcel(excelInput.files[0], numeroCliente);
+                    
+                    // 3. Generar el PDF final
+                    const notaFormData = new FormData();
+                    notaFormData.append('pdf_file', archivo);
+                    notaFormData.append('additional_data', numeroCliente);
+                    notaFormData.append('excel_file', excelInput.files[0]);
+                    
+                    const response = await fetch('/generar-nota/', {
+                        method: 'POST',
+                        body: notaFormData,
+                        headers: {
+                            'X-CSRFToken': csrfToken
+                        }
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Error al generar la nota');
+                    }
+
+                    // Manejar descarga del PDF
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    
+                    // Crear nombre de archivo con datos del cliente
+                    const nombreCliente = excelData.nombre || 'cliente';
+                    const dniCliente = excelData.dni || '';
+                    const fecha = new Date().toISOString().slice(0, 10);
+                    a.download = `Nota_${numeroCliente}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
+                    
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+
+                    // Actualizar fila en la tabla
+                    updateRowStatus(operationId, 'Completado', importe);
+                    
+                    // Actualizar el objeto en el historial
+                    const opIndex = operationsHistory.findIndex(op => op.id === operationId);
+                    if (opIndex !== -1) {
+                        operationsHistory[opIndex] = {
+                            ...operationsHistory[opIndex],
+                            nombre: excelData.nombre || 'No encontrado',
+                            dni: excelData.dni || 'No encontrado',
+                            importe: importe,
+                            estado: 'Completado'
+                        };
+                    }
+                    
+                    mostrarResultado(`✅ ${archivo.name} procesado correctamente (${i+1}/${selectedFiles.length})`);
+                    
+                } catch (error) {
+                    console.error(`Error procesando ${archivo.name}:`, error);
+                    updateRowStatus(operationId, 'Error');
+                    
+                    // Actualizar el objeto en el historial
+                    const opIndex = operationsHistory.findIndex(op => op.id === operationId);
+                    if (opIndex !== -1) {
+                        operationsHistory[opIndex].estado = 'Error';
+                    }
+                    
+                    mostrarResultado(`❌ Error procesando ${archivo.name}: ${error.message}`, true);
+                }
+                
+                // Actualizar progreso
+                updateProgress(i + 1, selectedFiles.length);
+            }
+            
+            isProcessing = false;
+            generateBtn.disabled = false;
+            generateBtn.textContent = 'Generar Notas PDF';
+            mostrarResultado('✅ Procesamiento completado');
         }
 
         async function parseExcel(excelFile, numeroCliente) {
