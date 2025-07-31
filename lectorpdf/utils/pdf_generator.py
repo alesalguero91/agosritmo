@@ -9,6 +9,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph, Frame
+from datetime import datetime
 
 def pdf_to_image(pdf_file):
     """Convierte la primera página de un PDF a imagen"""
@@ -64,6 +65,7 @@ def buscar_cliente_en_excel(df, cliente_id):
     }
 
 def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_data=None):
+    fecha_actual = datetime.now().strftime("%d/%m/%Y")
     try:
         if not excel_data:
             return {
@@ -81,34 +83,35 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
                 'message': f'La cuenta {additional_data} no existe en el archivo Excel'
             }
         
-        # Texto bien formateado
-        TEXTO_NOTA = f"""<b>_________________________________________________________________________________________</b><br/><br/>
-        <b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO<br/><br/>
+        # Texto bien formateado según el modelo
+        TEXTO_NOTA = f"""
+<b>__________________________________________________________________________________</b>
+<font name="Times-Roman" size="10"><b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO</font><br/><br/>
 
-<b>FECHA DE PRESENTACIÓN DE NOTA: 30/07/2025</b><br/>
+<font name="Times-Roman" size="10"><b>FECHA DE PRESENTACIÓN DE NOTA: {fecha_actual}</b></font><br/>
+<b>__________________________________________________________________________________</b>
 
+<font name="Times-Roman" size="8"><b>Cuenta: </b>{dats['nroCliente']}</font><br/>
 
-<b>_________________________________________________________________________________________</b>
-<br/><br/>
+<font name="Times-Roman" size="8"><b>Nombre:</b> {dats['Nombre']}</font><br/>
 
-<b>Cuenta: </b>{dats['nroCliente']}<br/>
+<font name="Times-Roman" size="8"><b>DNI: </b>{dats['dni']}</font><br/>
+<b>__________________________________________________________________________________</b>
 
-<b>Nombre:</b> {dats['Nombre']}<br/>
-
-<b>DNI: </b>{dats['dni']}<br/>
-<b>_________________________________________________________________________________________</b><br/><br/>
-
-Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
+<font name="Times-Roman" size="8">Por medio de la presente solici
+to, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
 referencia mencionada mas arriba, el pago de la misma fue realizado mediante transferencia bancaria <b>al BANCO 
-MACRO</b> CTA Nº <b>3140000023459615</b> -<br/><br/>
+MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
 
-Sin más atte.
+<font name="Times-Roman" size="8">Sin más atte.</font>
 """
-        # Configurar fuente
+        # Configurar fuente Times New Roman
         try:
             pdfmetrics.registerFont(TTFont('Times-Roman', 'Times New Roman.ttf'))
+            pdfmetrics.registerFont(TTFont('Times-Bold', 'Times New Roman Bold.ttf'))
             font_name = 'Times-Roman'
         except:
+            # Fallback a Helvetica si Times New Roman no está disponible
             font_name = 'Helvetica'
 
         # Procesar imagen/PDF de entrada
@@ -124,30 +127,31 @@ Sin más atte.
         # Configuración de formato con Paragraph
         left_margin = 50
         right_margin = 50
-        top_margin = height - 70
+        top_margin = height - 50  # Ajustado para mejor posicionamiento
         available_width = width - left_margin - right_margin
         
-        # Obtener estilos y crear estilo personalizado
+        # Estilo personalizado para Times New Roman
         styles = getSampleStyleSheet()
         custom_style = ParagraphStyle(
             name='Custom',
             parent=styles['Normal'],
-            fontName=font_name,
-            fontSize=10,
-            leading=12,
-            spaceBefore=6,
-            spaceAfter=6
+            fontName='Times-Roman',
+            fontSize=12,  # Tamaño más grande para coincidir con el documento
+            leading=14,   # Interlineado ligeramente mayor
+            spaceBefore=12,
+            spaceAfter=12,
+            alignment=4   # Texto justificado
         )
         
         # Crear frame para el texto
         frame = Frame(
-            left_margin, 100,  # Posición Y ajustada
+            left_margin, 100,
             available_width, top_margin - 100,
             leftPadding=0,
             bottomPadding=0,
             rightPadding=0,
             topPadding=0,
-            showBoundary=0  # Cambiar a 1 para debug
+            showBoundary=0
         )
         
         # Convertir texto a Paragraph y añadir al frame
@@ -169,7 +173,7 @@ Sin más atte.
         c.drawImage(
             ImageReader(img_io),
             x=(width - max_image_width) / 2,
-            y=50,  # Posición fija en la parte inferior
+            y=50,
             width=max_image_width,
             height=resized_height
         )

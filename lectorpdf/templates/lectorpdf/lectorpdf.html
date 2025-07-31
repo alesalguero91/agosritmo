@@ -200,7 +200,6 @@
         <table id="resultsTable">
             <thead>
                 <tr>
-                    <th>Archivo</th>
                     <th>N° Cliente</th>
                     <th>Nombre</th>
                     <th>DNI</th>
@@ -220,7 +219,8 @@
         let selectedFiles = [];
         let currentProcessingIndex = 0;
         let isProcessing = false;
-
+  
+    
         // Mostrar información de los archivos seleccionados
         document.getElementById('archivos').addEventListener('change', function(e) {
             selectedFiles = Array.from(e.target.files);
@@ -310,7 +310,6 @@
             }
             
             row.innerHTML = `
-                <td>${operationData.archivo}</td>
                 <td>${operationData.numero}</td>
                 <td>${operationData.nombre}</td>
                 <td>${operationData.dni}</td>
@@ -342,7 +341,7 @@
                 } else if (newStatus === 'Completado') {
                     row.classList.remove('processing-row');
                     if (importe) {
-                        row.cells[4].textContent = importe;
+                        row.cells[3].textContent = importe;
                     }
                 }
             }
@@ -362,25 +361,51 @@
                 return;
             }
 
-            // Crear contenido CSV
-            let csvContent = "Archivo,N° Cliente,Nombre,DNI,Importe,Estado\n";
+            // Crear libro de Excel
+            const wb = XLSX.utils.book_new();
             
-            completedOperations.forEach(op => {
-                csvContent += `"${op.archivo}",${op.numero},"${op.nombre}",${op.dni},${op.importe},${op.estado}\n`;
-            });
-
-            // Crear blob y descargar
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            // Preparar los datos con las columnas correctas
+            const datos = [
+                ["N° Cliente", "Nombre", "DNI", "Importe", "Estado"], // Encabezados
+                ...completedOperations.map(op => [
+                    op.numero,
+                    op.nombre,
+                    op.dni,
+                    op.importe,
+                    op.estado
+                ])
+            ];
+            
+            // Crear hoja de trabajo
+            const ws = XLSX.utils.aoa_to_sheet(datos);
+            
+            // Ajustar ancho de columnas
+            ws['!cols'] = [
+                {wch: 12},  // N° Cliente
+                {wch: 25},  // Nombre
+                {wch: 15},  // DNI
+                {wch: 15},  // Importe
+                {wch: 12}   // Estado
+            ];
+            
+            // Añadir hoja al libro
+            XLSX.utils.book_append_sheet(wb, ws, "Historial");
+            
+            // Generar archivo Excel
+            const excelBuffer = XLSX.write(wb, {bookType: 'xlsx', type: 'array'});
+            
+            // Descargar archivo
+            const blob = new Blob([excelBuffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.setAttribute('href', url);
-            link.setAttribute('download', `historial_notas_${new Date().toISOString().slice(0,10)}.csv`);
-            link.style.visibility = 'hidden';
+            link.href = url;
+            link.download = `historial_notas_${new Date().toISOString().slice(0,10)}.xlsx`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            URL.revokeObjectURL(url);
             
-            mostrarResultado('✅ Archivo CSV generado y descargado');
+            mostrarResultado('✅ Archivo Excel generado y descargado');
         }
 
         async function procesarArchivos() {
@@ -408,14 +433,24 @@
                 const archivo = selectedFiles[i];
                 const numeroCliente = extractNumeroClienteFromFileName(archivo.name);
                 
-                // Agregar a la tabla inmediatamente como "Procesando"
+                // Obtener datos del cliente del Excel primero
+                let excelData = {};
+                try {
+                    excelData = await parseExcel(excelInput.files[0], numeroCliente);
+                } catch (error) {
+                    excelData = {
+                        nombre: 'No encontrado',
+                        dni: 'No encontrado'
+                    };
+                }
+                
+                // Agregar a la tabla con los datos del cliente
                 const operationId = `op-${Date.now()}-${i}`;
                 addToResultsTable({
                     id: operationId,
-                    archivo: archivo.name,
                     numero: numeroCliente || 'N/A',
-                    nombre: 'Procesando...',
-                    dni: 'Procesando...',
+                    nombre: excelData.nombre || 'No encontrado',
+                    dni: excelData.dni || 'No encontrado',
                     importe: 'Procesando...',
                     estado: 'Procesando'
                 });
@@ -454,10 +489,7 @@
                         }
                     }
 
-                    // 2. Obtener datos del cliente del Excel
-                    const excelData = await parseExcel(excelInput.files[0], numeroCliente);
-                    
-                    // 3. Generar el PDF final
+                    // 2. Generar el PDF final
                     const notaFormData = new FormData();
                     notaFormData.append('pdf_file', archivo);
                     notaFormData.append('additional_data', numeroCliente);
@@ -501,8 +533,6 @@
                     if (opIndex !== -1) {
                         operationsHistory[opIndex] = {
                             ...operationsHistory[opIndex],
-                            nombre: excelData.nombre || 'No encontrado',
-                            dni: excelData.dni || 'No encontrado',
                             importe: importe,
                             estado: 'Completado'
                         };
