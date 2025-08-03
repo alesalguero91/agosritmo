@@ -1,8 +1,8 @@
-from PIL import Image
+from PIL import Image, ImageOps, ImageFilter
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-import fitz
+import fitz  # PyMuPDF
 import io
 import pandas as pd
 from reportlab.pdfbase import pdfmetrics
@@ -10,25 +10,39 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph, Frame
 from datetime import datetime
+import tempfile
+import os
 
-def pdf_to_image(pdf_file):
-    """Convierte PDF a imagen con calidad profesional (1200 DPI)"""
+def pdf_to_ultra_quality_image(pdf_file):
+    """Convierte PDF a imagen con calidad ultra HD"""
     pdf_file.seek(0)
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
     page = doc.load_page(0)
-    # Configuración profesional para máxima calidad
+    
+    # Configuración profesional para máxima fidelidad
+    zoom = 4  # Supermuestreo 4x
+    mat = fitz.Matrix(zoom, zoom)
+    
     pix = page.get_pixmap(
-        dpi=1200,  # Resolución ultra alta
-        colorspace=fitz.csRGB,  # Espacio de color RGB
-        alpha=False,  # Sin canal alpha
-        annots=False,  # Ignorar anotaciones
-        matrix=fitz.Matrix(2, 2)  # Supermuestreo 2x
+        matrix=mat,
+        dpi=1200,  # Resolución extremadamente alta
+        colorspace=fitz.csRGB,
+        alpha=False,
+        annots=False
     )
+    
     img_data = pix.tobytes("png")
-    return Image.open(io.BytesIO(img_data))
+    img = Image.open(io.BytesIO(img_data))
+    
+    # Mejorar contraste y nitidez
+    if img.mode == 'RGB':
+        img = ImageOps.autocontrast(img, cutoff=2)
+        img = img.filter(ImageFilter.SHARPEN)
+    
+    return img
 
 def buscar_cliente_en_excel(df, cliente_id):
-    """Busca cliente en Excel (sin cambios)"""
+    """Busca cliente en Excel con manejo robusto"""
     df.columns = df.columns.str.lower().str.strip()
     cliente_str = str(cliente_id).strip()
     
@@ -70,6 +84,7 @@ def buscar_cliente_en_excel(df, cliente_id):
     }
 
 def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_data=None):
+    """Genera PDF profesional con texto e imagen en máxima calidad"""
     fecha_actual = datetime.now().strftime("%d/%m/%Y")
     try:
         # Validación de Excel
@@ -82,20 +97,20 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
         if not dats:
             return {'error': True, 'message': f'Cuenta {additional_data} no existe'}
 
-        # Texto original (sin cambios)
+        # Texto de la nota
         TEXTO_NOTA = f"""
-<b>__________________________________________________________________________________</b>
+<b>___________________________________________________________________________________________</b>
 <font name="Times-Roman" size="10"><b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO</font><br/><br/>
 
 <font name="Times-Roman" size="10"><b>FECHA DE PRESENTACIÓN DE NOTA: {fecha_actual}</b></font><br/>
-<b>__________________________________________________________________________________</b>
+<b>___________________________________________________________________________________________</b>
 
 <font name="Times-Roman" size="8"><b>Cuenta: </b>{dats['nroCliente']}</font><br/>
 
 <font name="Times-Roman" size="8"><b>Nombre:</b> {dats['Nombre']}</font><br/>
 
 <font name="Times-Roman" size="8"><b>DNI: </b>{dats['dni']}</font><br/>
-<b>__________________________________________________________________________________</b><br/>
+<b>___________________________________________________________________________________________</b>
 
 <font name="Times-Roman" size="8">Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
 referencia mencionada mas arriba, el pago de la misma fue realizado mediante transferencia bancaria <b>al BANCO 
@@ -103,30 +118,32 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
 
 <font name="Times-Roman" size="8">Sin más atte.</font>
 """
-        # Configurar fuente
+        # Configurar fuente profesional
         try:
             pdfmetrics.registerFont(TTFont('Times-Roman', 'Times New Roman.ttf'))
             font_name = 'Times-Roman'
         except:
             font_name = 'Helvetica'
 
-        # Procesamiento de imagen/PDF con calidad profesional
+        # Procesamiento de imagen/PDF con calidad ultra
         if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
-            image = pdf_to_image(image_or_pdf_file)
+            img = pdf_to_ultra_quality_image(image_or_pdf_file)
         else:
-            image = Image.open(image_or_pdf_file)
-            if image.mode in ('RGBA', 'P'):
-                image = image.convert('RGB')
-            # Preservar metadatos de calidad
-            image.info['quality'] = 100
-            image.info['dpi'] = (300, 300)
+            img = Image.open(image_or_pdf_file)
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            
+            # Mejorar calidad para imágenes escaneadas
+            if img.width > 2000 or img.height > 2000:
+                img = ImageOps.autocontrast(img, cutoff=3)
+                img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
 
-        # Crear PDF
+        # Crear PDF con configuración premium
         buffer = io.BytesIO()
-        c = canvas.Canvas(buffer, pagesize=A4)
+        c = canvas.Canvas(buffer, pagesize=A4, pageCompression=0)  # Sin compresión
         width, height = A4
 
-        # Configuración de texto
+        # Configuración de texto profesional
         styles = getSampleStyleSheet()
         custom_style = ParagraphStyle(
             name='Custom',
@@ -136,60 +153,57 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
             leading=12,
             spaceBefore=6,
             spaceAfter=6,
-            alignment=4
+            alignment=4  # Justificado
         )
 
-        # Frame para texto (posición optimizada)
+        # Frame para texto con márgenes precisos
         frame = Frame(
-            50, height - 350, width - 100, 300, showBoundary=0
+            40, height - 350, width - 80, 300,  # Márgenes ajustados
+            leftPadding=0,
+            bottomPadding=0,
+            rightPadding=0,
+            topPadding=0,
+            showBoundary=0
         )
         story = [Paragraph(TEXTO_NOTA, custom_style)]
         frame.addFromList(story, c)
 
-        # Procesamiento de imagen con máxima calidad
-        original_width, original_height = image.size
-        max_width = width * 0.8
-        max_height = height * 0.5
+        # Procesamiento de imagen con calidad extrema
+        img_width, img_height = img.size
+        max_width = width * 0.85  # 85% del ancho de página
+        max_height = height * 0.45  # 45% del alto de página
         
-        if original_width <= max_width and original_height <= max_height:
-            # Usar tamaño original si es posible
-            final_width, final_height = original_width, original_height
-            img_final = image
-        else:
-            # Redimensionamiento profesional
-            ratio = min(max_width/original_width, max_height/original_height)
-            final_width = int(original_width * ratio)
-            final_height = int(original_height * ratio)
-            img_final = image.resize(
-                (final_width, final_height),
-                Image.Resampling.LANCZOS,
-                reducing_gap=3.0
+        ratio = min(max_width/img_width, max_height/img_height)
+        final_width = img_width * ratio
+        final_height = img_height * ratio
+
+        # Determinar el mejor formato para guardar temporalmente
+        file_ext = '.png'
+        save_params = {
+            'format': 'PNG',
+            'compress_level': 0,  # Sin compresión
+            'dpi': (600, 600)
+        }
+
+        # Usar archivo temporal físico
+        with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp_file:
+            img.save(tmp_file.name, **save_params)
+            
+            # Insertar imagen con parámetros profesionales
+            c.drawImage(
+                tmp_file.name,
+                x=(width - final_width)/2,  # Centrado perfecto
+                y=120,  # Posición óptima desde abajo
+                width=final_width,
+                height=final_height,
+                preserveAspectRatio=True,
+                mask='auto',
+                anchor='c'
             )
-
-        # Guardar imagen temporal con máxima calidad
-        temp_img = io.BytesIO()
-        if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith(('.jpg', '.jpeg')):
-            img_final.save(temp_img, format='JPEG', 
-                         quality=100,
-                         subsampling=0,
-                         dpi=(300, 300))
-        else:
-            img_final.save(temp_img, format='PNG',
-                         compress_level=0,
-                         dpi=(300, 300))
-        temp_img.seek(0)
-
-        # Dibujar imagen en PDF (posición Y=150)
-        c.drawImage(
-            ImageReader(temp_img),
-            x=(width - final_width)/2,
-            y=150,  # Posición ajustada
-            width=final_width,
-            height=final_height,
-            preserveAspectRatio=True,
-            mask='auto',
-            anchor='c'
-        )
+            
+            # Limpieza del temporal
+            tmp_file.close()
+            os.unlink(tmp_file.name)
 
         c.showPage()
         c.save()
@@ -198,186 +212,5 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
         return {'error': False, 'pdf': buffer}
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Error en generación de PDF: {str(e)}")
         return {'error': True, 'message': f'Error al generar PDF: {str(e)}'}
-    
-    
-
-"""
-API_BASE_URL = "http://127.0.0.1:8000/api/clients/"
-
-def obtener_datos_cliente(cliente):
-    print("Aqui")
-    try:
-        response = requests.get(f"{API_BASE_URL}{cliente}")
-        print(f"{API_BASE_URL}{cliente}")
-        response.raise_for_status()  # Lanza excepción si hay error HTTP
-        print("buscado")
-        return response.json()
-        
-    except requests.RequestException as e:
-        print(f"Error al obtener datos del cliente: {e}")
-        return None
-
-
-def pdf_to_image(pdf_file):
-    pdf_file.seek(0)
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    page = doc.load_page(0)
-    pix = page.get_pixmap(dpi=200)
-    img_data = pix.tobytes("png")
-    image = Image.open(io.BytesIO(img_data))
-    return image
-
-
-def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data):
-
-    dats = obtener_datos_cliente(additional_data)
-    print(dats)
-
-    nro = dats.get("nroCliente", "N/A") if dats else "N/A"
-    dni = dats.get("dni", "N/A") if dats else "N/A"
-    nombre = dats.get("Nombre", "N/A") if dats else "N/A"
-
-    TEXTO_NOTA = fPARA: ADMINISTRACIÓN
-DE: GESTIÓN Y MORA
-ASUNTO: AUTORIZACIÓN DE PAGO
-
-FECHA DE PRESENTACIÓN DE NOTA:
-
-CUENTA: {nro}
-NOMBRE: {nombre}
-DNI: {dni}
-
-Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de referencia MACRO CTA Nº 314000023459615.
-
-Sin más, atte.
-
-
-    if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
-        image = pdf_to_image(image_or_pdf_file)
-    else:
-        image = Image.open(image_or_pdf_file)
-
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-
-    # Configuraciones
-    left_margin = 50
-    right_margin = 50
-    top_margin = height - 50
-    available_width = width - left_margin - right_margin
-    line_height = 14
-    font_size = 11
-
-    # Crear estilo para el párrafo
-    styles = getSampleStyleSheet()
-    style = ParagraphStyle(
-        'nota_style',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=font_size,
-        leading=line_height,
-        alignment=TA_LEFT,
-        leftIndent=0,
-        rightIndent=0,
-        spaceBefore=0,
-        spaceAfter=0,
-    )
-
-    # Dividir el texto en líneas que quepan en el ancho disponible
-    text_lines = []
-    for line in TEXTO_NOTA.split("\n"):
-        if not line.strip():
-            text_lines.append(line)
-            continue
-            
-        words = line.split()
-        current_line = words[0] if words else ""
-        for word in words[1:]:
-            test_line = f"{current_line} {word}"
-            if c.stringWidth(test_line, "Helvetica", font_size) <= available_width:
-                current_line = test_line
-            else:
-                text_lines.append(current_line)
-                current_line = word
-        text_lines.append(current_line)
-
-
-    text_height = len(text_lines) * line_height
-
-
-    image_width, image_height = image.size
-    max_image_width = width * 0.6
-    ratio = max_image_width / image_width
-    resized_height = image_height * ratio
-    
-
-    required_space = text_height + resized_height + 100 
-    
-
-    while required_space > height - 100 and font_size > 8:
-        font_size -= 0.5
-        line_height = font_size + 3
-        style.fontSize = font_size
-        style.leading = line_height
-        
- 
-        text_lines = []
-        for line in TEXTO_NOTA.split("\n"):
-            if not line.strip():
-                text_lines.append(line)
-                continue
-                
-            words = line.split()
-            current_line = words[0] if words else ""
-            for word in words[1:]:
-                test_line = f"{current_line} {word}"
-                if c.stringWidth(test_line, "Helvetica", font_size) <= available_width:
-                    current_line = test_line
-                else:
-                    text_lines.append(current_line)
-                    current_line = word
-            text_lines.append(current_line)
-        
-        text_height = len(text_lines) * line_height
-        required_space = text_height + resized_height + 100
-
-
-    y_position = top_margin
-    for line in text_lines:
-        if line.strip(): 
-            c.setFont("Helvetica", font_size)
-            c.drawString(left_margin, y_position, line)
-        y_position -= line_height
-
-
-    y_position -= 20
-
-    resized_width = max_image_width
-    image_resized = image.resize((int(resized_width), int(resized_height)))
-
-    img_io = io.BytesIO()
-    image_resized.save(img_io, format="PNG")
-    img_io.seek(0)
-
-
-    if y_position - resized_height < 40:
-        c.showPage()  
-        y_position = height - 50
-
-    c.drawImage(
-        ImageReader(img_io),
-        x=(width - resized_width) / 2,
-        y=y_position - resized_height,
-        width=resized_width,
-        height=resized_height
-    )
-
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-
-    return buffer
-"""
