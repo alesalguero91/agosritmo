@@ -38,8 +38,25 @@ def perform_ocr_on_pdf(pdf_file, lang='spa'):
     return text
 
 def extract_financial_data(text):
-    amount_match = re.search(r'\$\s*([\d.,]+)', text)
-    amount = amount_match.group(1).replace('.', '').replace(',', '.') if amount_match else None
+    amount_patterns = [
+        r'(?:importe|monto)\s*[:=]?\s*\$\s*([\d.,]+)',  # "Importe: $1.234,56"
+        r'(?:importe|monto)\s*[:=]?\s*([\d.,]+)',       # "Monto 1.234,56"
+        r'\$\s*([\d.,]+)',                              # "$ 1.234,56"
+        r'(?<!\d)(\d[\d.,]*\d)(?!\d)'                   # "1234.56" (standalone number)
+    ]
+    
+    amount = None
+    for pattern in amount_patterns:
+        amount_match = re.search(pattern, text, re.IGNORECASE)
+        if amount_match:
+            amount_str = amount_match.group(1)
+            # Normalización del formato numérico
+            amount_str = amount_str.replace('.', '').replace(',', '.')
+            try:
+                amount = float(amount_str)
+                break  # Nos quedamos con la primera coincidencia válida
+            except ValueError:
+                continue
 
     cbu_cvu_match = re.search(r'(\d[\d\s]{20,}\d)', text.replace('\n', ' '))
     if cbu_cvu_match:

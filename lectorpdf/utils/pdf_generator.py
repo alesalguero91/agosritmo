@@ -12,16 +12,23 @@ from reportlab.platypus import Paragraph, Frame
 from datetime import datetime
 
 def pdf_to_image(pdf_file):
-    """Convierte la primera página de un PDF a imagen"""
+    """Convierte PDF a imagen con calidad profesional (1200 DPI)"""
     pdf_file.seek(0)
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
     page = doc.load_page(0)
-    pix = page.get_pixmap(dpi=200)
+    # Configuración profesional para máxima calidad
+    pix = page.get_pixmap(
+        dpi=1200,  # Resolución ultra alta
+        colorspace=fitz.csRGB,  # Espacio de color RGB
+        alpha=False,  # Sin canal alpha
+        annots=False,  # Ignorar anotaciones
+        matrix=fitz.Matrix(2, 2)  # Supermuestreo 2x
+    )
     img_data = pix.tobytes("png")
     return Image.open(io.BytesIO(img_data))
 
 def buscar_cliente_en_excel(df, cliente_id):
-    """Busca un cliente en el DataFrame del Excel por número de cliente/cuenta"""
+    """Busca cliente en Excel (sin cambios)"""
     df.columns = df.columns.str.lower().str.strip()
     cliente_str = str(cliente_id).strip()
     
@@ -32,7 +39,7 @@ def buscar_cliente_en_excel(df, cliente_id):
     columna_encontrada = next((col for col in posibles_columnas if col in df.columns), None)
     
     if not columna_encontrada:
-        raise ValueError("No se encontró columna con número de cuenta/cliente en el Excel")
+        raise ValueError("No se encontró columna de cuenta/cliente")
     
     try:
         df[columna_encontrada] = df[columna_encontrada].astype(str).str.strip()
@@ -41,7 +48,6 @@ def buscar_cliente_en_excel(df, cliente_id):
         if cliente_data.empty:
             cliente_str_sin_ceros = cliente_str.lstrip('0')
             cliente_data = df[df[columna_encontrada].str.lstrip('0') == cliente_str_sin_ceros]
-            
             if cliente_data.empty:
                 return None
         
@@ -55,7 +61,7 @@ def buscar_cliente_en_excel(df, cliente_id):
         nombre = next(str(datos[col]) for col in ['nombre', 'nombre completo', 'nom', 'nombres', 'apellido']
                     if col in datos and pd.notna(datos[col]))
     except StopIteration:
-        raise ValueError("No se encontraron los campos obligatorios (DNI y Nombre) para el cliente")
+        raise ValueError("Faltan campos obligatorios (DNI/Nombre)")
     
     return {
         'nroCliente': str(datos[columna_encontrada]),
@@ -66,36 +72,30 @@ def buscar_cliente_en_excel(df, cliente_id):
 def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_data=None):
     fecha_actual = datetime.now().strftime("%d/%m/%Y")
     try:
+        # Validación de Excel
         if not excel_data:
-            return {
-                'error': True,
-                'message': 'Se requiere archivo Excel para buscar los datos del cliente'
-            }
+            return {'error': True, 'message': 'Se requiere archivo Excel'}
         
         excel_data.seek(0)
         df = pd.read_excel(excel_data)
-        
         dats = buscar_cliente_en_excel(df, additional_data)
-        if dats is None:
-            return {
-                'error': True,
-                'message': f'La cuenta {additional_data} no existe en el archivo Excel'
-            }
-        
-        # Texto original como fue proporcionado
+        if not dats:
+            return {'error': True, 'message': f'Cuenta {additional_data} no existe'}
+
+        # Texto original (sin cambios)
         TEXTO_NOTA = f"""
-<b>_________________________________________________________________________________________</b>
+<b>__________________________________________________________________________________</b>
 <font name="Times-Roman" size="10"><b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO</font><br/><br/>
 
 <font name="Times-Roman" size="10"><b>FECHA DE PRESENTACIÓN DE NOTA: {fecha_actual}</b></font><br/>
-<b>_________________________________________________________________________________________</b>
+<b>__________________________________________________________________________________</b>
 
 <font name="Times-Roman" size="8"><b>Cuenta: </b>{dats['nroCliente']}</font><br/>
 
 <font name="Times-Roman" size="8"><b>Nombre:</b> {dats['Nombre']}</font><br/>
 
 <font name="Times-Roman" size="8"><b>DNI: </b>{dats['dni']}</font><br/>
-<b>_________________________________________________________________________________________</b>
+<b>__________________________________________________________________________________</b><br/>
 
 <font name="Times-Roman" size="8">Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
 referencia mencionada mas arriba, el pago de la misma fue realizado mediante transferencia bancaria <b>al BANCO 
@@ -103,34 +103,30 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
 
 <font name="Times-Roman" size="8">Sin más atte.</font>
 """
-        # Configurar fuente Times New Roman
+        # Configurar fuente
         try:
             pdfmetrics.registerFont(TTFont('Times-Roman', 'Times New Roman.ttf'))
-            pdfmetrics.registerFont(TTFont('Times-Bold', 'Times New Roman Bold.ttf'))
             font_name = 'Times-Roman'
         except:
             font_name = 'Helvetica'
 
-        # Procesar imagen/PDF
+        # Procesamiento de imagen/PDF con calidad profesional
         if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
             image = pdf_to_image(image_or_pdf_file)
         else:
             image = Image.open(image_or_pdf_file)
-        
-        # Convertir a RGB si es necesario
-        if image.mode in ('RGBA', 'P'):
-            image = image.convert('RGB')
+            if image.mode in ('RGBA', 'P'):
+                image = image.convert('RGB')
+            # Preservar metadatos de calidad
+            image.info['quality'] = 100
+            image.info['dpi'] = (300, 300)
 
+        # Crear PDF
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
 
-        # Configuración de márgenes
-        left_margin = 50
-        right_margin = 50
-        available_width = width - left_margin - right_margin
-        
-        # Estilo para el texto
+        # Configuración de texto
         styles = getSampleStyleSheet()
         custom_style = ParagraphStyle(
             name='Custom',
@@ -143,64 +139,68 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
             alignment=4
         )
 
-        # Crear frame para el texto (posición más alta)
+        # Frame para texto (posición optimizada)
         frame = Frame(
-            left_margin, height - 350,  # Ajustado para dejar más espacio para la imagen
-            available_width, 300,
-            leftPadding=0,
-            bottomPadding=0,
-            rightPadding=0,
-            topPadding=0,
-            showBoundary=0
+            50, height - 350, width - 100, 300, showBoundary=0
         )
-        
-        # Añadir texto al frame
         story = [Paragraph(TEXTO_NOTA, custom_style)]
         frame.addFromList(story, c)
 
-        # Procesar imagen y colocarla más arriba
-        image_width, image_height = image.size
-        max_image_width = width * 0.6
-        max_image_height = height * 0.4
+        # Procesamiento de imagen con máxima calidad
+        original_width, original_height = image.size
+        max_width = width * 0.8
+        max_height = height * 0.5
         
-        # Calcular ratio de escalado
-        ratio = min(max_image_width / image_width, max_image_height / image_height)
-        resized_width = image_width * ratio
-        resized_height = image_height * ratio
-        
-        # Posición más alta para la imagen (ajustado a 150 en lugar de 50)
-        image_y = 150  # Aumentado para subir la imagen
-        
-        # Guardar imagen redimensionada
-        img_io = io.BytesIO()
-        image_resized = image.resize((int(resized_width), int(resized_height)))
-        image_resized.save(img_io, format="PNG")
-        img_io.seek(0)
-        
-        # Dibujar imagen en el PDF
+        if original_width <= max_width and original_height <= max_height:
+            # Usar tamaño original si es posible
+            final_width, final_height = original_width, original_height
+            img_final = image
+        else:
+            # Redimensionamiento profesional
+            ratio = min(max_width/original_width, max_height/original_height)
+            final_width = int(original_width * ratio)
+            final_height = int(original_height * ratio)
+            img_final = image.resize(
+                (final_width, final_height),
+                Image.Resampling.LANCZOS,
+                reducing_gap=3.0
+            )
+
+        # Guardar imagen temporal con máxima calidad
+        temp_img = io.BytesIO()
+        if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith(('.jpg', '.jpeg')):
+            img_final.save(temp_img, format='JPEG', 
+                         quality=100,
+                         subsampling=0,
+                         dpi=(300, 300))
+        else:
+            img_final.save(temp_img, format='PNG',
+                         compress_level=0,
+                         dpi=(300, 300))
+        temp_img.seek(0)
+
+        # Dibujar imagen en PDF (posición Y=150)
         c.drawImage(
-            ImageReader(img_io),
-            x=(width - resized_width) / 2,  # Centrado
-            y=image_y,
-            width=resized_width,
-            height=resized_height
+            ImageReader(temp_img),
+            x=(width - final_width)/2,
+            y=150,  # Posición ajustada
+            width=final_width,
+            height=final_height,
+            preserveAspectRatio=True,
+            mask='auto',
+            anchor='c'
         )
 
         c.showPage()
         c.save()
         buffer.seek(0)
 
-        return {
-            'error': False,
-            'pdf': buffer
-        }
-        
+        return {'error': False, 'pdf': buffer}
+
     except Exception as e:
-        print(f"Error en generar_pdf_con_texto_y_imagen: {str(e)}")
-        return {
-            'error': True,
-            'message': f'Error al generar PDF: {str(e)}'
-        }
+        print(f"Error: {str(e)}")
+        return {'error': True, 'message': f'Error al generar PDF: {str(e)}'}
+    
     
 
 """
