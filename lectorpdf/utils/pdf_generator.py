@@ -18,8 +18,7 @@ def pdf_to_image(pdf_file):
     page = doc.load_page(0)
     pix = page.get_pixmap(dpi=200)
     img_data = pix.tobytes("png")
-    image = Image.open(io.BytesIO(img_data))
-    return image
+    return Image.open(io.BytesIO(img_data))
 
 def buscar_cliente_en_excel(df, cliente_id):
     """Busca un cliente en el DataFrame del Excel por número de cliente/cuenta"""
@@ -83,23 +82,22 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
                 'message': f'La cuenta {additional_data} no existe en el archivo Excel'
             }
         
-        # Texto bien formateado según el modelo
+        # Texto original como fue proporcionado
         TEXTO_NOTA = f"""
-<b>__________________________________________________________________________________</b>
+<b>_________________________________________________________________________________________</b>
 <font name="Times-Roman" size="10"><b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO</font><br/><br/>
 
 <font name="Times-Roman" size="10"><b>FECHA DE PRESENTACIÓN DE NOTA: {fecha_actual}</b></font><br/>
-<b>__________________________________________________________________________________</b>
+<b>_________________________________________________________________________________________</b>
 
 <font name="Times-Roman" size="8"><b>Cuenta: </b>{dats['nroCliente']}</font><br/>
 
 <font name="Times-Roman" size="8"><b>Nombre:</b> {dats['Nombre']}</font><br/>
 
 <font name="Times-Roman" size="8"><b>DNI: </b>{dats['dni']}</font><br/>
-<b>__________________________________________________________________________________</b>
+<b>_________________________________________________________________________________________</b>
 
-<font name="Times-Roman" size="8">Por medio de la presente solici
-to, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
+<font name="Times-Roman" size="8">Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
 referencia mencionada mas arriba, el pago de la misma fue realizado mediante transferencia bancaria <b>al BANCO 
 MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
 
@@ -111,42 +109,44 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
             pdfmetrics.registerFont(TTFont('Times-Bold', 'Times New Roman Bold.ttf'))
             font_name = 'Times-Roman'
         except:
-            # Fallback a Helvetica si Times New Roman no está disponible
             font_name = 'Helvetica'
 
-        # Procesar imagen/PDF de entrada
+        # Procesar imagen/PDF
         if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
             image = pdf_to_image(image_or_pdf_file)
         else:
             image = Image.open(image_or_pdf_file)
+        
+        # Convertir a RGB si es necesario
+        if image.mode in ('RGBA', 'P'):
+            image = image.convert('RGB')
 
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
 
-        # Configuración de formato con Paragraph
+        # Configuración de márgenes
         left_margin = 50
         right_margin = 50
-        top_margin = height - 50  # Ajustado para mejor posicionamiento
         available_width = width - left_margin - right_margin
         
-        # Estilo personalizado para Times New Roman
+        # Estilo para el texto
         styles = getSampleStyleSheet()
         custom_style = ParagraphStyle(
             name='Custom',
             parent=styles['Normal'],
-            fontName='Times-Roman',
-            fontSize=12,  # Tamaño más grande para coincidir con el documento
-            leading=14,   # Interlineado ligeramente mayor
-            spaceBefore=12,
-            spaceAfter=12,
-            alignment=4   # Texto justificado
+            fontName=font_name,
+            fontSize=10,
+            leading=12,
+            spaceBefore=6,
+            spaceAfter=6,
+            alignment=4
         )
-        
-        # Crear frame para el texto
+
+        # Crear frame para el texto (posición más alta)
         frame = Frame(
-            left_margin, 100,
-            available_width, top_margin - 100,
+            left_margin, height - 350,  # Ajustado para dejar más espacio para la imagen
+            available_width, 300,
             leftPadding=0,
             bottomPadding=0,
             rightPadding=0,
@@ -154,27 +154,35 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
             showBoundary=0
         )
         
-        # Convertir texto a Paragraph y añadir al frame
+        # Añadir texto al frame
         story = [Paragraph(TEXTO_NOTA, custom_style)]
         frame.addFromList(story, c)
 
-        # Procesar y añadir imagen
+        # Procesar imagen y colocarla más arriba
         image_width, image_height = image.size
         max_image_width = width * 0.6
-        ratio = max_image_width / image_width
+        max_image_height = height * 0.4
+        
+        # Calcular ratio de escalado
+        ratio = min(max_image_width / image_width, max_image_height / image_height)
+        resized_width = image_width * ratio
         resized_height = image_height * ratio
         
-        image_resized = image.resize((int(max_image_width), int(resized_height)))
+        # Posición más alta para la imagen (ajustado a 150 en lugar de 50)
+        image_y = 150  # Aumentado para subir la imagen
+        
+        # Guardar imagen redimensionada
         img_io = io.BytesIO()
+        image_resized = image.resize((int(resized_width), int(resized_height)))
         image_resized.save(img_io, format="PNG")
         img_io.seek(0)
-
-        # Posición de la imagen (debajo del texto)
+        
+        # Dibujar imagen en el PDF
         c.drawImage(
             ImageReader(img_io),
-            x=(width - max_image_width) / 2,
-            y=50,
-            width=max_image_width,
+            x=(width - resized_width) / 2,  # Centrado
+            y=image_y,
+            width=resized_width,
             height=resized_height
         )
 
