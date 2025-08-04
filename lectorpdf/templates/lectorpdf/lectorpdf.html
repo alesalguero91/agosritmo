@@ -64,6 +64,10 @@
             background-color: #fcf8e3;
             color: #8a6d3b;
         }
+        .repetido {
+            background-color: #fff3e0;
+            color: #e65100;
+        }
         #resultsTable {
             width: 100%;
             border-collapse: collapse;
@@ -87,6 +91,9 @@
         }
         #resultsTable tr.error-row {
             background-color: #ffebee;
+        }
+        #resultsTable tr.repetido-row {
+            background-color: #fff3e0;
         }
         .export-btn {
             background-color: #2196F3;
@@ -143,6 +150,10 @@
         }
         .status-error {
             color: #F44336;
+        }
+        .status-repetido {
+            color: #FF9800;
+            font-weight: bold;
         }
         .progress-container {
             width: 100%;
@@ -220,26 +231,26 @@
         let currentProcessingIndex = 0;
         let isProcessing = false;
 
-        // Función mejorada para extraer número de cliente ignorando paréntesis
         function extractNumeroClienteFromFileName(fileName) {
-            // Primero eliminar paréntesis y su contenido del nombre del archivo
             const cleanedName = fileName.replace(/\([^)]*\)/g, '');
-            
-            // Eliminar la extensión del archivo
             const nameWithoutExt = cleanedName.split('.').slice(0, -1).join('.');
-            
-            // Buscar secuencias de números en el nombre del archivo
             const matches = nameWithoutExt.match(/\d+/g);
             
             if (matches && matches.length > 0) {
-                // Tomar el primer grupo de números encontrado como número de cliente
                 return matches[0];
             }
             
             return null;
         }
 
-        // Mostrar información de los archivos seleccionados
+        function esOperacionRepetida(numeroCliente, importe) {
+            return operationsHistory.some(op => 
+                op.numero === numeroCliente && 
+                op.importe === importe && 
+                (op.estado === 'Completado' || op.estado === 'Repetido')
+            );
+        }
+
         document.getElementById('archivos').addEventListener('change', function(e) {
             selectedFiles = Array.from(e.target.files);
             updateSelectedFilesList();
@@ -272,12 +283,13 @@
             });
         }
 
-        function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false) {
+        function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false, esRepetido = false) {
             const resultDiv = document.getElementById('result');
             resultDiv.textContent = mensaje;
             resultDiv.className = esError ? 'error' : 
                                  esProcesando ? 'processing' :
                                  esLimpieza ? 'cleanup' :
+                                 esRepetido ? 'repetido' :
                                  'success';
         }
 
@@ -309,6 +321,8 @@
                 row.classList.add('processing-row');
             } else if (operationData.estado === 'Error') {
                 row.classList.add('error-row');
+            } else if (operationData.estado === 'Repetido') {
+                row.classList.add('repetido-row');
             }
             
             row.innerHTML = `
@@ -337,8 +351,14 @@
                 
                 if (newStatus === 'Error') {
                     row.classList.add('error-row');
-                    row.classList.remove('processing-row');
+                    row.classList.remove('processing-row', 'repetido-row');
                 } else if (newStatus === 'Completado') {
+                    row.classList.remove('processing-row', 'repetido-row');
+                    if (importe) {
+                        row.cells[3].textContent = importe;
+                    }
+                } else if (newStatus === 'Repetido') {
+                    row.classList.add('repetido-row');
                     row.classList.remove('processing-row');
                     if (importe) {
                         row.cells[3].textContent = importe;
@@ -475,51 +495,64 @@
                         }
                     }
 
-                    const notaFormData = new FormData();
-                    notaFormData.append('pdf_file', archivo);
-                    notaFormData.append('additional_data', numeroCliente);
-                    notaFormData.append('excel_file', excelInput.files[0]);
-                    
-                    const response = await fetch('/generar-nota/', {
-                        method: 'POST',
-                        body: notaFormData,
-                        headers: {
-                            'X-CSRFToken': csrfToken
-                        }
-                    });
+                    const esRepetido = esOperacionRepetida(numeroCliente, importe);
+                    const estadoFinal = esRepetido ? 'Repetido' : 'Completado';
 
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Error al generar la nota');
+                    if (!esRepetido) {
+                        const notaFormData = new FormData();
+                        notaFormData.append('pdf_file', archivo);
+                        notaFormData.append('additional_data', numeroCliente);
+                        notaFormData.append('excel_file', excelInput.files[0]);
+                        
+                        const response = await fetch('/generar-nota/', {
+                            method: 'POST',
+                            body: notaFormData,
+                            headers: {
+                                'X-CSRFToken': csrfToken
+                            }
+                        });
+
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.error || 'Error al generar la nota');
+                        }
+
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        
+                        const nombreCliente = excelData.nombre || 'cliente';
+                        const dniCliente = excelData.dni || '';
+                        const fecha = new Date().toISOString().slice(0, 10);
+                        a.download = `Nota_${numeroCliente}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
+                        
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
                     }
 
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    
-                    const nombreCliente = excelData.nombre || 'cliente';
-                    const dniCliente = excelData.dni || '';
-                    const fecha = new Date().toISOString().slice(0, 10);
-                    a.download = `Nota_${numeroCliente}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
-                    
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-
-                    updateRowStatus(operationId, 'Completado', importe);
+                    updateRowStatus(operationId, estadoFinal, importe);
                     
                     const opIndex = operationsHistory.findIndex(op => op.id === operationId);
                     if (opIndex !== -1) {
                         operationsHistory[opIndex] = {
                             ...operationsHistory[opIndex],
                             importe: importe,
-                            estado: 'Completado'
+                            estado: estadoFinal
                         };
                     }
                     
-                    mostrarResultado(`✅ ${archivo.name} procesado correctamente (${i+1}/${selectedFiles.length})`);
+                    mostrarResultado(
+                        esRepetido ? 
+                            `⚠️ ${archivo.name} es repetido (mismo cliente e importe)` : 
+                            `✅ ${archivo.name} procesado correctamente (${i+1}/${selectedFiles.length})`,
+                        false, 
+                        false, 
+                        false,
+                        esRepetido
+                    );
                     
                 } catch (error) {
                     console.error(`Error procesando ${archivo.name}:`, error);
