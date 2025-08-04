@@ -12,9 +12,15 @@ from rest_framework.parsers import MultiPartParser, FormParser
 import logging
 from datetime import datetime
 import re
-
+from django.utils.text import get_valid_filename
 
 logger = logging.getLogger(__name__)
+
+def limpiar_nombre_archivo(nombre_archivo):
+    """Elimina paréntesis y su contenido, y caracteres inválidos del nombre del archivo."""
+    nombre_limpiado = re.sub(r'\([^)]*\)', '', nombre_archivo)
+    nombre_limpiado = get_valid_filename(nombre_limpiado)
+    return nombre_limpiado.strip()
 
 @ensure_csrf_cookie
 def subir_archivo_view(request):
@@ -25,17 +31,19 @@ class PDFUploadView(APIView):
     
     def post(self, request, *args, **kwargs):
         try:
-            # Debug: Log the incoming request data
             logger.info(f"Request data: {request.data}")
             logger.info(f"Files in request: {request.FILES}")
             
-            # Make sure we're getting the file properly
             if 'pdf_file' not in request.FILES:
                 logger.error("No file found in request.FILES")
                 return Response(
                     {'error': 'No file was submitted'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            
+            # Limpiar nombre del archivo si existe
+            if 'pdf_file' in request.FILES:
+                request.FILES['pdf_file'].name = limpiar_nombre_archivo(request.FILES['pdf_file'].name)
             
             serializer = PDFUploadSerializer(data=request.data)
             if not serializer.is_valid():
@@ -46,7 +54,7 @@ class PDFUploadView(APIView):
                 )
             
             file = serializer.validated_data['pdf_file']
-            logger.info(f"File received: {file.name}, size: {file.size}")
+            logger.info(f"File received (cleaned name): {file.name}, size: {file.size}")
             
             data = process_pdf_or_image(file)
             
@@ -62,7 +70,7 @@ class PDFUploadView(APIView):
             return Response(
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )        
+            )
 
 class NotaGeneradaView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -75,6 +83,11 @@ class NotaGeneradaView(APIView):
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
             file = serializer.validated_data['pdf_file']
+            
+            # Limpiar nombre del archivo
+            if hasattr(file, 'name'):
+                file.name = limpiar_nombre_archivo(file.name)
+            
             numero_cliente = serializer.validated_data.get('additional_data')
             excel_file = request.FILES.get('excel_file')
             
@@ -85,31 +98,26 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Primero: Procesar el PDF/Imagen para extraer el texto
             texto_extraido = process_pdf_or_image(file)
             logger.info(f"Texto extraído del archivo: {texto_extraido}")
-            print(f"\n=== TEXTO EXTRAÍDO DEL ARCHIVO ===\n{texto_extraido}\n=====================\n")
             
-            # Segundo: Procesar Excel para obtener datos del cliente
             try:
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
                 
-                # Buscar cliente por número de cuenta (convertir a int para coincidir)
                 cliente_info = df[df['cuenta'] == int(numero_cliente)].iloc[0]
                 nombre_cliente = cliente_info['nombre']
                 dni_cliente = cliente_info.get('dni', '')
                 
-                # Limpiar datos para nombre de archivo
-                nombre_cliente = re.sub(r'[\\/*?:"<>|]', '', nombre_cliente).strip()
-                nombre_cliente = nombre_cliente.replace(' ', '_')[:50]  # Limitar longitud
+                # Limpiar nombre del cliente para el archivo
+                nombre_cliente = limpiar_nombre_archivo(nombre_cliente)
+                nombre_cliente = nombre_cliente.replace(' ', '_')[:50]
                 dni_cliente = str(dni_cliente).strip()
             except Exception as e:
                 logger.error(f"Error al obtener datos del cliente: {str(e)}")
                 nombre_cliente = "cliente"
                 dni_cliente = ""
             
-            # Tercero: Generar el PDF
             resultado = generar_pdf_con_texto_y_imagen(
                 file, 
                 numero_cliente,
@@ -123,20 +131,14 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Generar nombre del archivo con formato: Nota_NUMERO_DNI_NOMBRE_FECHA.pdf
             fecha_actual = datetime.now().strftime("%Y%m%d")
             nombre_archivo = f"Nota_{numero_cliente}_{dni_cliente}_{nombre_cliente}_{fecha_actual}.pdf"
             
-            # Crear respuesta con el nombre personalizado
             response = HttpResponse(
                 resultado['pdf'],
                 content_type='application/pdf'
             )
             response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
-            
-            # También devolver el texto extraído en la respuesta (opcional)
-            # Si quieres que el texto aparezca en la respuesta HTTP:
-            # response['X-Extracted-Text'] = texto_extraido[:500]  # Limitar tamaño
             
             return response
             
@@ -180,24 +182,3 @@ class ExcelUploadView(APIView):
                 {'error': 'Error al procesar Excel'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-
-"""    
-class NotaGeneradaViewEnWord(APIView):
-    def post(self, request):
-        serializer = PDFUploadSerializer(data=request.data)
-        if serializer.is_valid():
-            file = serializer.validated_data['pdf_file']
-            try:
-                # Generar documento Word en lugar de PDF
-                nuevo_docx = generar_word_con_texto_y_imagen(file)
-                return HttpResponse(
-                    nuevo_docx.getvalue(),
-                    content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    headers={'Content-Disposition': 'attachment; filename="nota_generada.docx"'}
-                )
-            except Exception as e:
-                return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-"""

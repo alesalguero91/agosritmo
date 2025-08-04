@@ -219,8 +219,26 @@
         let selectedFiles = [];
         let currentProcessingIndex = 0;
         let isProcessing = false;
-  
-    
+
+        // Función mejorada para extraer número de cliente ignorando paréntesis
+        function extractNumeroClienteFromFileName(fileName) {
+            // Primero eliminar paréntesis y su contenido del nombre del archivo
+            const cleanedName = fileName.replace(/\([^)]*\)/g, '');
+            
+            // Eliminar la extensión del archivo
+            const nameWithoutExt = cleanedName.split('.').slice(0, -1).join('.');
+            
+            // Buscar secuencias de números en el nombre del archivo
+            const matches = nameWithoutExt.match(/\d+/g);
+            
+            if (matches && matches.length > 0) {
+                // Tomar el primer grupo de números encontrado como número de cliente
+                return matches[0];
+            }
+            
+            return null;
+        }
+
         // Mostrar información de los archivos seleccionados
         document.getElementById('archivos').addEventListener('change', function(e) {
             selectedFiles = Array.from(e.target.files);
@@ -252,22 +270,6 @@
                 `;
                 filesListDiv.appendChild(fileItem);
             });
-        }
-
-        // Función para extraer el número de cliente del nombre del archivo
-        function extractNumeroClienteFromFileName(fileName) {
-            // Eliminar la extensión del archivo
-            const nameWithoutExt = fileName.split('.').slice(0, -1).join('.');
-            
-            // Buscar secuencias de números en el nombre del archivo
-            const matches = nameWithoutExt.match(/\d+/g);
-            
-            if (matches && matches.length > 0) {
-                // Tomar el primer grupo de números encontrado como número de cliente
-                return matches[0];
-            }
-            
-            return null;
         }
 
         function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false) {
@@ -317,14 +319,12 @@
                 <td class="status-${operationData.estado.toLowerCase()}">${operationData.estado}</td>
             `;
             
-            // Insertar al principio de la tabla
             if (tableBody.firstChild) {
                 tableBody.insertBefore(row, tableBody.firstChild);
             } else {
                 tableBody.appendChild(row);
             }
             
-            // Mostrar el botón de exportar si hay datos
             document.getElementById('exportExcelBtn').classList.remove('hidden');
         }
 
@@ -353,7 +353,6 @@
                 return;
             }
 
-            // Filtrar solo las operaciones completadas
             const completedOperations = operationsHistory.filter(op => op.estado === 'Completado');
             
             if (completedOperations.length === 0) {
@@ -361,12 +360,10 @@
                 return;
             }
 
-            // Crear libro de Excel
             const wb = XLSX.utils.book_new();
             
-            // Preparar los datos con las columnas correctas
             const datos = [
-                ["N° Cliente", "Nombre", "DNI", "Importe", "Estado"], // Encabezados
+                ["N° Cliente", "Nombre", "DNI", "Importe", "Estado"],
                 ...completedOperations.map(op => [
                     op.numero,
                     op.nombre,
@@ -376,25 +373,20 @@
                 ])
             ];
             
-            // Crear hoja de trabajo
             const ws = XLSX.utils.aoa_to_sheet(datos);
             
-            // Ajustar ancho de columnas
             ws['!cols'] = [
-                {wch: 12},  // N° Cliente
-                {wch: 25},  // Nombre
-                {wch: 15},  // DNI
-                {wch: 15},  // Importe
-                {wch: 12}   // Estado
+                {wch: 12},
+                {wch: 25},
+                {wch: 15},
+                {wch: 15},
+                {wch: 12}
             ];
             
-            // Añadir hoja al libro
             XLSX.utils.book_append_sheet(wb, ws, "Historial");
             
-            // Generar archivo Excel
             const excelBuffer = XLSX.write(wb, {bookType: 'xlsx', type: 'array'});
             
-            // Descargar archivo
             const blob = new Blob([excelBuffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -415,7 +407,6 @@
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             const generateBtn = document.getElementById('generateBtn');
             
-            // Validar inputs
             if (selectedFiles.length === 0 || !excelInput.files[0]) {
                 mostrarResultado('❌ Por favor complete todos los campos', true);
                 return;
@@ -427,13 +418,11 @@
             document.getElementById('progressContainer').classList.remove('hidden');
             updateProgress(0, selectedFiles.length);
             
-            // Procesar cada archivo secuencialmente
             for (let i = 0; i < selectedFiles.length; i++) {
                 currentProcessingIndex = i;
                 const archivo = selectedFiles[i];
                 const numeroCliente = extractNumeroClienteFromFileName(archivo.name);
                 
-                // Obtener datos del cliente del Excel primero
                 let excelData = {};
                 try {
                     excelData = await parseExcel(excelInput.files[0], numeroCliente);
@@ -444,7 +433,6 @@
                     };
                 }
                 
-                // Agregar a la tabla con los datos del cliente
                 const operationId = `op-${Date.now()}-${i}`;
                 addToResultsTable({
                     id: operationId,
@@ -460,7 +448,6 @@
                         throw new Error('No se pudo detectar el número de cliente del nombre del archivo');
                     }
 
-                    // 1. Extraer texto del PDF/imagen
                     const pdfFormData = new FormData();
                     pdfFormData.append('pdf_file', archivo);
                     
@@ -480,7 +467,6 @@
                     const extractData = await extractResponse.json();
                     console.log('Texto extraído:', extractData.text);
 
-                    // Obtener importe
                     let importe = extractData.financial_data?.amount?.toString() || "No encontrado";
                     if (importe === "No encontrado") {
                         const importeMatch = extractData.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
@@ -489,7 +475,6 @@
                         }
                     }
 
-                    // 2. Generar el PDF final
                     const notaFormData = new FormData();
                     notaFormData.append('pdf_file', archivo);
                     notaFormData.append('additional_data', numeroCliente);
@@ -508,13 +493,11 @@
                         throw new Error(errorData.error || 'Error al generar la nota');
                     }
 
-                    // Manejar descarga del PDF
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
                     
-                    // Crear nombre de archivo con datos del cliente
                     const nombreCliente = excelData.nombre || 'cliente';
                     const dniCliente = excelData.dni || '';
                     const fecha = new Date().toISOString().slice(0, 10);
@@ -525,10 +508,8 @@
                     document.body.removeChild(a);
                     window.URL.revokeObjectURL(url);
 
-                    // Actualizar fila en la tabla
                     updateRowStatus(operationId, 'Completado', importe);
                     
-                    // Actualizar el objeto en el historial
                     const opIndex = operationsHistory.findIndex(op => op.id === operationId);
                     if (opIndex !== -1) {
                         operationsHistory[opIndex] = {
@@ -544,7 +525,6 @@
                     console.error(`Error procesando ${archivo.name}:`, error);
                     updateRowStatus(operationId, 'Error');
                     
-                    // Actualizar el objeto en el historial
                     const opIndex = operationsHistory.findIndex(op => op.id === operationId);
                     if (opIndex !== -1) {
                         operationsHistory[opIndex].estado = 'Error';
@@ -553,7 +533,6 @@
                     mostrarResultado(`❌ Error procesando ${archivo.name}: ${error.message}`, true);
                 }
                 
-                // Actualizar progreso
                 updateProgress(i + 1, selectedFiles.length);
             }
             
@@ -574,7 +553,6 @@
                             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                             const jsonData = XLSX.utils.sheet_to_json(firstSheet);
                             
-                            // Búsqueda insensible a mayúsculas/minúsculas
                             const findColumn = (row, possibleNames) => {
                                 const lowerNames = possibleNames.map(n => n.toLowerCase());
                                 for (const key in row) {
@@ -611,7 +589,6 @@
         }
     </script>
     
-    <!-- Incluir la biblioteca SheetJS para manejar Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </body>
 </html>
