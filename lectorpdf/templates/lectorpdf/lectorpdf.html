@@ -171,6 +171,18 @@
             color: white;
             line-height: 20px;
         }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -285,12 +297,9 @@
 
         function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false, esRepetido = false) {
             const resultDiv = document.getElementById('result');
-            resultDiv.textContent = mensaje;
-            resultDiv.className = esError ? 'error' : 
-                                 esProcesando ? 'processing' :
-                                 esLimpieza ? 'cleanup' :
-                                 esRepetido ? 'repetido' :
-                                 'success';
+            resultDiv.innerHTML = esProcesando ? 
+                `<div class="processing">${mensaje} <span class="spinner"></span></div>` :
+                `<div class="${esError ? 'error' : esLimpieza ? 'cleanup' : esRepetido ? 'repetido' : 'success'}">${mensaje}</div>`;
         }
 
         function limpiarTodo() {
@@ -468,20 +477,33 @@
                         throw new Error('No se pudo detectar el número de cliente del nombre del archivo');
                     }
 
+                    // Configurar timeout para la petición
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 segundos
+
                     const pdfFormData = new FormData();
                     pdfFormData.append('pdf_file', archivo);
                     
+                    // Extraer texto del PDF
                     const extractResponse = await fetch('/upload-pdf/', {
                         method: 'POST',
                         body: pdfFormData,
                         headers: {
                             'X-CSRFToken': csrfToken
-                        }
+                        },
+                        signal: controller.signal
                     });
+                    clearTimeout(timeoutId);
 
                     if (!extractResponse.ok) {
-                        const errorData = await extractResponse.json();
-                        throw new Error(errorData.error || 'Error al extraer texto');
+                        let errorMsg = `Error ${extractResponse.status}`;
+                        try {
+                            const errorData = await extractResponse.json();
+                            errorMsg += `: ${errorData.error || 'Error al extraer texto'}`;
+                        } catch (e) {
+                            errorMsg += `: ${await extractResponse.text()}`;
+                        }
+                        throw new Error(errorMsg);
                     }
 
                     const extractData = await extractResponse.json();
@@ -499,6 +521,10 @@
                     const estadoFinal = esRepetido ? 'Repetido' : 'Completado';
 
                     if (!esRepetido) {
+                        // Configurar timeout para la generación de nota
+                        const notaController = new AbortController();
+                        const notaTimeoutId = setTimeout(() => notaController.abort(), 120000); // 120 segundos
+
                         const notaFormData = new FormData();
                         notaFormData.append('pdf_file', archivo);
                         notaFormData.append('additional_data', numeroCliente);
@@ -509,12 +535,20 @@
                             body: notaFormData,
                             headers: {
                                 'X-CSRFToken': csrfToken
-                            }
+                            },
+                            signal: notaController.signal
                         });
+                        clearTimeout(notaTimeoutId);
 
                         if (!response.ok) {
-                            const errorData = await response.json();
-                            throw new Error(errorData.error || 'Error al generar la nota');
+                            let errorMsg = `Error ${response.status}`;
+                            try {
+                                const errorData = await response.json();
+                                errorMsg += `: ${errorData.error || 'Error al generar la nota'}`;
+                            } catch (e) {
+                                errorMsg += `: ${await response.text()}`;
+                            }
+                            throw new Error(errorMsg);
                         }
 
                         const blob = await response.blob();
@@ -563,10 +597,15 @@
                         operationsHistory[opIndex].estado = 'Error';
                     }
                     
-                    mostrarResultado(`❌ Error procesando ${archivo.name}: ${error.message}`, true);
+                    let errorMessage = error.message;
+                    if (error.name === 'AbortError') {
+                        errorMessage = 'Tiempo de espera agotado. El servidor tardó demasiado en responder.';
+                    }
+                    
+                    mostrarResultado(`❌ Error procesando ${archivo.name}: ${errorMessage}`, true);
+                } finally {
+                    updateProgress(i + 1, selectedFiles.length);
                 }
-                
-                updateProgress(i + 1, selectedFiles.length);
             }
             
             isProcessing = false;

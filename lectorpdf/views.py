@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 import re
 from django.utils.text import get_valid_filename
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class PDFUploadView(APIView):
             
             data = process_pdf_or_image(file)
             
-            logger.info(f"Extracted text: {data.get('full_text')}")
+            logger.info(f"Extracted text length: {len(data.get('full_text', ''))}")
             
             return Response({
                 'text': data.get('full_text', ''),
@@ -66,7 +67,7 @@ class PDFUploadView(APIView):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            logger.error(f"Error in PDFUploadView: {str(e)}", exc_info=True)
+            logger.error(f"Error in PDFUploadView: {str(e)}\n{traceback.format_exc()}")
             return Response(
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -77,6 +78,9 @@ class NotaGeneradaView(APIView):
     
     def post(self, request):
         try:
+            logger.info("Iniciando generación de nota...")
+            logger.info(f"Archivos recibidos: {request.FILES.keys()}")
+            
             serializer = PDFUploadSerializer(data=request.data)
             if not serializer.is_valid():
                 logger.error(f"Errores de serializador: {serializer.errors}")
@@ -87,6 +91,7 @@ class NotaGeneradaView(APIView):
             # Limpiar nombre del archivo
             if hasattr(file, 'name'):
                 file.name = limpiar_nombre_archivo(file.name)
+                logger.info(f"Procesando archivo: {file.name}")
             
             numero_cliente = serializer.validated_data.get('additional_data')
             excel_file = request.FILES.get('excel_file')
@@ -98,10 +103,12 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            logger.info("Extrayendo texto del PDF...")
             texto_extraido = process_pdf_or_image(file)
-            logger.info(f"Texto extraído del archivo: {texto_extraido}")
+            logger.info(f"Texto extraído del archivo (primeros 200 caracteres): {texto_extraido.get('full_text', '')[:200]}...")
             
             try:
+                logger.info("Procesando archivo Excel...")
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
                 
@@ -113,11 +120,14 @@ class NotaGeneradaView(APIView):
                 nombre_cliente = limpiar_nombre_archivo(nombre_cliente)
                 nombre_cliente = nombre_cliente.replace(' ', '_')[:50]
                 dni_cliente = str(dni_cliente).strip()
+                
+                logger.info(f"Datos cliente encontrado: Nombre: {nombre_cliente}, DNI: {dni_cliente}")
             except Exception as e:
-                logger.error(f"Error al obtener datos del cliente: {str(e)}")
+                logger.error(f"Error al obtener datos del cliente: {str(e)}\n{traceback.format_exc()}")
                 nombre_cliente = "cliente"
                 dni_cliente = ""
             
+            logger.info("Generando PDF...")
             resultado = generar_pdf_con_texto_y_imagen(
                 file, 
                 numero_cliente,
@@ -134,6 +144,8 @@ class NotaGeneradaView(APIView):
             fecha_actual = datetime.now().strftime("%Y%m%d")
             nombre_archivo = f"Nota_{numero_cliente}_{dni_cliente}_{nombre_cliente}_{fecha_actual}.pdf"
             
+            logger.info(f"PDF generado correctamente: {nombre_archivo}")
+            
             response = HttpResponse(
                 resultado['pdf'],
                 content_type='application/pdf'
@@ -143,9 +155,9 @@ class NotaGeneradaView(APIView):
             return response
             
         except Exception as e:
-            logger.error(f"Error en NotaGeneradaView: {str(e)}", exc_info=True)
+            logger.error(f"Error en NotaGeneradaView: {str(e)}\n{traceback.format_exc()}")
             return Response(
-                {'error': 'Error al procesar la solicitud'},
+                {'error': f'Error al procesar la solicitud: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -177,8 +189,8 @@ class ExcelUploadView(APIView):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            logger.error(f"Error en ExcelUploadView: {str(e)}")
+            logger.error(f"Error en ExcelUploadView: {str(e)}\n{traceback.format_exc()}")
             return Response(
-                {'error': 'Error al procesar Excel'},
+                {'error': f'Error al procesar Excel: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
