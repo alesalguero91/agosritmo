@@ -85,7 +85,6 @@ def buscar_cliente_en_excel(df, cliente_id):
 
 def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_data=None):
     """Genera PDF profesional con texto e imagen en máxima calidad"""
-    fecha_actual = datetime.now().strftime("%d/%m/%Y")
     try:
         # Validación de Excel
         if not excel_data:
@@ -97,8 +96,51 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
         if not dats:
             return {'error': True, 'message': f'Cuenta {additional_data} no existe'}
 
-        # Texto de la nota
-        TEXTO_NOTA = f"""
+        # Procesamiento de imagen/PDF con calidad ultra
+        if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
+            img = pdf_to_ultra_quality_image(image_or_pdf_file)
+        else:
+            img = Image.open(image_or_pdf_file)
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            
+            # Mejorar calidad para imágenes escaneadas
+            if img.width > 2000 or img.height > 2000:
+                img = ImageOps.autocontrast(img, cutoff=3)
+                img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+
+        # Crear PDF con configuración premium
+        buffer = io.BytesIO()
+        
+        try:
+            c = canvas.Canvas(buffer, pagesize=A4, pageCompression=0)
+            width, height = A4
+
+            # Configuración de texto profesional
+            styles = getSampleStyleSheet()
+            custom_style = ParagraphStyle(
+                name='Custom',
+                parent=styles['Normal'],
+                fontName='Helvetica',
+                fontSize=10,
+                leading=12,
+                spaceBefore=6,
+                spaceAfter=6,
+                alignment=4
+            )
+
+            # Frame para texto
+            frame = Frame(
+                40, height - 350, width - 80, 300,
+                leftPadding=0,
+                bottomPadding=0,
+                rightPadding=0,
+                topPadding=0,
+                showBoundary=0
+            )
+            
+            fecha_actual = datetime.now().strftime("%d/%m/%Y")
+            TEXTO_NOTA = f"""
 <b>___________________________________________________________________________________________</b>
 <font name="Times-Roman" size="10"><b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO</font><br/><br/>
 
@@ -118,99 +160,56 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
 
 <font name="Times-Roman" size="8">Sin más atte.</font>
 """
-        # Configurar fuente profesional
-        try:
-            pdfmetrics.registerFont(TTFont('Times-Roman', 'Times New Roman.ttf'))
-            font_name = 'Times-Roman'
-        except:
-            font_name = 'Helvetica'
+            story = [Paragraph(TEXTO_NOTA, custom_style)]
+            frame.addFromList(story, c)
 
-        # Procesamiento de imagen/PDF con calidad ultra
-        if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
-            img = pdf_to_ultra_quality_image(image_or_pdf_file)
-        else:
-            img = Image.open(image_or_pdf_file)
-            if img.mode in ('RGBA', 'P'):
-                img = img.convert('RGB')
+            # Procesamiento de imagen
+            img_width, img_height = img.size
+            max_width = width * 0.85
+            max_height = height * 0.45
             
-            # Mejorar calidad para imágenes escaneadas
-            if img.width > 2000 or img.height > 2000:
-                img = ImageOps.autocontrast(img, cutoff=3)
-                img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+            ratio = min(max_width/img_width, max_height/img_height)
+            final_width = img_width * ratio
+            final_height = img_height * ratio
 
-        # Crear PDF con configuración premium
-        buffer = io.BytesIO()
-        c = canvas.Canvas(buffer, pagesize=A4, pageCompression=0)  # Sin compresión
-        width, height = A4
-
-        # Configuración de texto profesional
-        styles = getSampleStyleSheet()
-        custom_style = ParagraphStyle(
-            name='Custom',
-            parent=styles['Normal'],
-            fontName=font_name,
-            fontSize=10,
-            leading=12,
-            spaceBefore=6,
-            spaceAfter=6,
-            alignment=4  # Justificado
-        )
-
-        # Frame para texto con márgenes precisos
-        frame = Frame(
-            40, height - 350, width - 80, 300,  # Márgenes ajustados
-            leftPadding=0,
-            bottomPadding=0,
-            rightPadding=0,
-            topPadding=0,
-            showBoundary=0
-        )
-        story = [Paragraph(TEXTO_NOTA, custom_style)]
-        frame.addFromList(story, c)
-
-        # Procesamiento de imagen con calidad extrema
-        img_width, img_height = img.size
-        max_width = width * 0.85  # 85% del ancho de página
-        max_height = height * 0.45  # 45% del alto de página
-        
-        ratio = min(max_width/img_width, max_height/img_height)
-        final_width = img_width * ratio
-        final_height = img_height * ratio
-
-        # Determinar el mejor formato para guardar temporalmente
-        file_ext = '.png'
-        save_params = {
-            'format': 'PNG',
-            'compress_level': 0,  # Sin compresión
-            'dpi': (600, 600)
-        }
-
-        # Usar archivo temporal físico
-        with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmp_file:
-            img.save(tmp_file.name, **save_params)
+            # Usar archivo temporal
+            temp_file = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                    img.save(tmp_file.name, format='PNG', compress_level=0, dpi=(600, 600))
+                    temp_file = tmp_file.name
+                
+                # Insertar imagen
+                c.drawImage(
+                    temp_file,
+                    x=(width - final_width)/2,
+                    y=120,
+                    width=final_width,
+                    height=final_height,
+                    preserveAspectRatio=True,
+                    mask='auto'
+                )
+                
+                c.showPage()
+                c.save()
+                buffer.seek(0)
+                
+                return {'error': False, 'pdf': buffer}
+                
+            finally:
+                if temp_file and os.path.exists(temp_file):
+                    try:
+                        os.unlink(temp_file)
+                    except:
+                        pass
+                    
+        except Exception as e:
+            if 'buffer' in locals():
+                buffer.close()
+            raise e
             
-            # Insertar imagen con parámetros profesionales
-            c.drawImage(
-                tmp_file.name,
-                x=(width - final_width)/2,  # Centrado perfecto
-                y=120,  # Posición óptima desde abajo
-                width=final_width,
-                height=final_height,
-                preserveAspectRatio=True,
-                mask='auto',
-                anchor='c'
-            )
-            
-            # Limpieza del temporal
-            tmp_file.close()
-            os.unlink(tmp_file.name)
-
-        c.showPage()
-        c.save()
-        buffer.seek(0)
-
-        return {'error': False, 'pdf': buffer}
-
     except Exception as e:
-        print(f"Error en generación de PDF: {str(e)}")
+        import traceback
+        print(f"Error en generación de PDF: {str(e)}\n{traceback.format_exc()}")
         return {'error': True, 'message': f'Error al generar PDF: {str(e)}'}
+      
