@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generador de Notas PDF</title>
     <style>
+        /* Tus estilos existentes */
         body {
             font-family: Arial, sans-serif;
             max-width: 1000px;
@@ -60,14 +61,6 @@
             background-color: #d9edf7;
             color: #31708f;
         }
-        .cleanup {
-            background-color: #fcf8e3;
-            color: #8a6d3b;
-        }
-        .repetido {
-            background-color: #fff3e0;
-            color: #e65100;
-        }
         #resultsTable {
             width: 100%;
             border-collapse: collapse;
@@ -80,80 +73,6 @@
         }
         #resultsTable th {
             background-color: #f2f2f2;
-            position: sticky;
-            top: 0;
-        }
-        #resultsTable tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        #resultsTable tr.processing-row {
-            background-color: #e6f3ff;
-        }
-        #resultsTable tr.error-row {
-            background-color: #ffebee;
-        }
-        #resultsTable tr.repetido-row {
-            background-color: #fff3e0;
-        }
-        .export-btn {
-            background-color: #2196F3;
-            margin-top: 10px;
-        }
-        .export-btn:hover {
-            background-color: #0b7dda;
-        }
-        .hidden {
-            display: none;
-        }
-        #fileInfo {
-            margin-top: 5px;
-            font-size: 0.9em;
-            color: #666;
-        }
-        .file-name {
-            font-weight: bold;
-            color: #333;
-        }
-        .numero-cliente {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-        #selectedFilesList {
-            max-height: 200px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            padding: 10px;
-            border-radius: 4px;
-            margin-top: 10px;
-        }
-        .file-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 5px 0;
-            border-bottom: 1px solid #eee;
-        }
-        .file-item:last-child {
-            border-bottom: none;
-        }
-        .file-status {
-            font-style: italic;
-            color: #666;
-        }
-        .status-pending {
-            color: #FF9800;
-        }
-        .status-processing {
-            color: #2196F3;
-        }
-        .status-completed {
-            color: #4CAF50;
-        }
-        .status-error {
-            color: #F44336;
-        }
-        .status-repetido {
-            color: #FF9800;
-            font-weight: bold;
         }
         .progress-container {
             width: 100%;
@@ -171,33 +90,17 @@
             color: white;
             line-height: 20px;
         }
-        .spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
     </style>
 </head>
 <body>
     <h1>Generador de Notas PDF</h1>
     
-    <form id="notaForm" enctype="multipart/form-data" onsubmit="event.preventDefault();">
+    <form id="notaForm" enctype="multipart/form-data">
         {% csrf_token %}
         
         <div class="form-group">
             <label for="archivos">Comprobantes (PDF o imágenes):</label>
             <input type="file" id="archivos" name="archivos" accept=".pdf,.jpg,.jpeg,.png" multiple required>
-            <div id="fileInfo">
-                <div id="selectedFilesCount">0 archivos seleccionados</div>
-                <div id="selectedFilesList"></div>
-            </div>
         </div>
         
         <div class="form-group">
@@ -209,397 +112,205 @@
             <div class="progress-bar" id="progressBar">0%</div>
         </div>
         
-        <div>
-            <button type="button" id="generateBtn" onclick="procesarArchivos()">Generar Notas PDF</button>
-            <button type="button" onclick="limpiarTodo()" style="background-color: #f0ad4e;">Limpiar Todo</button>
-            <button id="exportExcelBtn" class="export-btn hidden" onclick="exportToExcel()">Exportar a Excel</button>
-        </div>
+        <button type="button" id="generateBtn">Generar Notas PDF</button>
+        <button type="button" id="limpiarBtn">Limpiar Todo</button>
     </form>
     
     <div id="result"></div>
     
-    <div id="tableContainer">
-        <h2>Historial de Operaciones</h2>
-        <table id="resultsTable">
-            <thead>
-                <tr>
-                    <th>N° Cliente</th>
-                    <th>Nombre</th>
-                    <th>DNI</th>
-                    <th>Importe</th>
-                    <th>Estado</th>
-                </tr>
-            </thead>
-            <tbody id="resultsTableBody">
-                <!-- Las filas se agregarán dinámicamente -->
-            </tbody>
-        </table>
-    </div>
-    
+    <table id="resultsTable">
+        <thead>
+            <tr>
+                <th>N° Cliente</th>
+                <th>Nombre</th>
+                <th>DNI</th>
+                <th>Importe</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody id="resultsTableBody">
+            <!-- Filas se agregarán dinámicamente -->
+        </tbody>
+    </table>
+
     <script>
-        const API_BASE_URL = window.location.origin;
-        let operationsHistory = [];
-        let selectedFiles = [];
-        let currentProcessingIndex = 0;
-        let isProcessing = false;
-
-        function extractNumeroClienteFromFileName(fileName) {
-            const cleanedName = fileName.replace(/\([^)]*\)/g, '');
-            const nameWithoutExt = cleanedName.split('.').slice(0, -1).join('.');
-            const matches = nameWithoutExt.match(/\d+/g);
-            
-            if (matches && matches.length > 0) {
-                return matches[0];
-            }
-            
-            return null;
-        }
-
-        function esOperacionRepetida(numeroCliente, importe) {
-            return operationsHistory.some(op => 
-                op.numero === numeroCliente && 
-                op.importe === importe && 
-                (op.estado === 'Completado' || op.estado === 'Repetido')
-            );
-        }
-
-        document.getElementById('archivos').addEventListener('change', function(e) {
-            selectedFiles = Array.from(e.target.files);
-            updateSelectedFilesList();
-        });
-
-        function updateSelectedFilesList() {
-            const filesListDiv = document.getElementById('selectedFilesList');
-            const filesCountDiv = document.getElementById('selectedFilesCount');
-            
-            filesCountDiv.textContent = `${selectedFiles.length} archivo(s) seleccionado(s)`;
-            
-            if (selectedFiles.length === 0) {
-                filesListDiv.innerHTML = '<p>No hay archivos seleccionados</p>';
-                return;
-            }
-            
-            filesListDiv.innerHTML = '';
-            selectedFiles.forEach((file, index) => {
-                const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
-                
-                const numeroCliente = extractNumeroClienteFromFileName(file.name);
-                const clienteDisplay = numeroCliente ? `(Cliente: ${numeroCliente})` : '(N° cliente no detectado)';
-                
-                fileItem.innerHTML = `
-                    <span class="file-name">${file.name}</span>
-                    <span class="file-status status-pending">Pendiente</span>
-                `;
-                filesListDiv.appendChild(fileItem);
-            });
-        }
-
-        function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false, esRepetido = false) {
-            const resultDiv = document.getElementById('result');
-            resultDiv.innerHTML = esProcesando ? 
-                `<div class="processing">${mensaje} <span class="spinner"></span></div>` :
-                `<div class="${esError ? 'error' : esLimpieza ? 'cleanup' : esRepetido ? 'repetido' : 'success'}">${mensaje}</div>`;
-        }
-
-        function limpiarTodo() {
-            document.getElementById('archivos').value = '';
-            document.getElementById('excelFile').value = '';
-            document.getElementById('selectedFilesList').innerHTML = '<p>No hay archivos seleccionados</p>';
-            document.getElementById('selectedFilesCount').textContent = '0 archivos seleccionados';
-            selectedFiles = [];
-            mostrarResultado('✅ Todos los campos fueron limpiados', false, false, true);
-            document.getElementById('progressContainer').classList.add('hidden');
-        }
-
-        function updateProgress(processed, total) {
-            const progress = Math.round((processed / total) * 100);
+        document.addEventListener('DOMContentLoaded', function() {
+            const generateBtn = document.getElementById('generateBtn');
+            const limpiarBtn = document.getElementById('limpiarBtn');
+            const archivosInput = document.getElementById('archivos');
+            const excelFileInput = document.getElementById('excelFile');
+            const progressContainer = document.getElementById('progressContainer');
             const progressBar = document.getElementById('progressBar');
-            progressBar.style.width = `${progress}%`;
-            progressBar.textContent = `${progress}%`;
-        }
-
-        function addToResultsTable(operationData) {
-            operationsHistory.push(operationData);
-            
+            const resultDiv = document.getElementById('result');
             const tableBody = document.getElementById('resultsTableBody');
-            const row = document.createElement('tr');
-            row.id = `row-${operationData.id}`;
             
-            if (operationData.estado === 'Procesando') {
-                row.classList.add('processing-row');
-            } else if (operationData.estado === 'Error') {
-                row.classList.add('error-row');
-            } else if (operationData.estado === 'Repetido') {
-                row.classList.add('repetido-row');
+            let selectedFiles = [];
+            let isProcessing = false;
+            let operationsHistory = [];
+            
+            // Configuración para Render
+            const fetchConfig = {
+                timeout: 120000, // 2 minutos
+                retries: 2,
+                retryDelay: 1000
+            };
+            
+            archivosInput.addEventListener('change', function(e) {
+                selectedFiles = Array.from(e.target.files);
+            });
+            
+            limpiarBtn.addEventListener('click', limpiarTodo);
+            generateBtn.addEventListener('click', procesarArchivos);
+            
+            function mostrarResultado(mensaje, esError = false) {
+                resultDiv.innerHTML = `<div class="${esError ? 'error' : 'success'}">${mensaje}</div>`;
             }
             
-            row.innerHTML = `
-                <td>${operationData.numero}</td>
-                <td>${operationData.nombre}</td>
-                <td>${operationData.dni}</td>
-                <td>${operationData.importe}</td>
-                <td class="status-${operationData.estado.toLowerCase()}">${operationData.estado}</td>
-            `;
+            function limpiarTodo() {
+                archivosInput.value = '';
+                excelFileInput.value = '';
+                selectedFiles = [];
+                progressContainer.classList.add('hidden');
+                mostrarResultado('Todos los campos fueron limpiados');
+            }
             
-            if (tableBody.firstChild) {
-                tableBody.insertBefore(row, tableBody.firstChild);
-            } else {
+            function updateProgress(processed, total) {
+                const progress = Math.round((processed / total) * 100);
+                progressBar.style.width = `${progress}%`;
+                progressBar.textContent = `${progress}%`;
+            }
+            
+            function addToResultsTable(data) {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${data.numero}</td>
+                    <td>${data.nombre}</td>
+                    <td>${data.dni}</td>
+                    <td>${data.importe}</td>
+                    <td>${data.estado}</td>
+                `;
                 tableBody.appendChild(row);
+                operationsHistory.push(data);
             }
             
-            document.getElementById('exportExcelBtn').classList.remove('hidden');
-        }
-
-        function updateRowStatus(id, newStatus, newData = {}) {
-            const row = document.getElementById(`row-${id}`);
-            if (row) {
-                const statusCell = row.querySelector('td:last-child');
-                statusCell.textContent = newStatus;
-                statusCell.className = `status-${newStatus.toLowerCase()}`;
-                
-                if (newStatus === 'Error') {
-                    row.classList.add('error-row');
-                    row.classList.remove('processing-row', 'repetido-row');
-                } else if (newStatus === 'Completado' || newStatus === 'Repetido') {
-                    if (newStatus === 'Completado') {
-                        row.classList.remove('processing-row', 'repetido-row');
-                    } else {
-                        row.classList.add('repetido-row');
-                        row.classList.remove('processing-row');
-                    }
-                    
-                    // Actualizar datos si se proporcionan
-                    if (newData.nombre) {
-                        row.cells[1].textContent = newData.nombre;
-                    }
-                    if (newData.dni) {
-                        row.cells[2].textContent = newData.dni;
-                    }
-                    if (newData.importe) {
-                        row.cells[3].textContent = newData.importe;
-                    }
+            function updateRowStatus(index, newData) {
+                const row = tableBody.children[index];
+                if (row) {
+                    if (newData.nombre) row.cells[1].textContent = newData.nombre;
+                    if (newData.dni) row.cells[2].textContent = newData.dni;
+                    if (newData.importe) row.cells[3].textContent = newData.importe;
+                    if (newData.estado) row.cells[4].textContent = newData.estado;
                 }
             }
-        }
-
-        function exportToExcel() {
-            if (operationsHistory.length === 0) {
-                mostrarResultado('❌ No hay datos para exportar', true);
-                return;
-            }
-
-            const completedOperations = operationsHistory.filter(op => op.estado === 'Completado');
             
-            if (completedOperations.length === 0) {
-                mostrarResultado('❌ No hay operaciones completadas para exportar', true);
-                return;
-            }
-
-            const wb = XLSX.utils.book_new();
-            
-            const datos = [
-                ["N° Cliente", "Nombre", "DNI", "Importe", "Estado"],
-                ...completedOperations.map(op => [
-                    op.numero,
-                    op.nombre,
-                    op.dni,
-                    op.importe,
-                    op.estado
-                ])
-            ];
-            
-            const ws = XLSX.utils.aoa_to_sheet(datos);
-            
-            ws['!cols'] = [
-                {wch: 12},
-                {wch: 25},
-                {wch: 15},
-                {wch: 15},
-                {wch: 12}
-            ];
-            
-            XLSX.utils.book_append_sheet(wb, ws, "Historial");
-            
-            const excelBuffer = XLSX.write(wb, {bookType: 'xlsx', type: 'array'});
-            
-            const blob = new Blob([excelBuffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `historial_notas_${new Date().toISOString().slice(0,10)}.xlsx`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            
-            mostrarResultado('✅ Archivo Excel generado y descargado');
-        }
-
-        async function procesarArchivos() {
-            if (isProcessing) return;
-            
-            const excelInput = document.getElementById('excelFile');
-            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-            const generateBtn = document.getElementById('generateBtn');
-            
-            if (selectedFiles.length === 0 || !excelInput.files[0]) {
-                mostrarResultado('❌ Por favor complete todos los campos', true);
-                return;
-            }
-
-            isProcessing = true;
-            generateBtn.disabled = true;
-            generateBtn.textContent = 'Procesando...';
-            document.getElementById('progressContainer').classList.remove('hidden');
-            updateProgress(0, selectedFiles.length);
-            
-            for (let i = 0; i < selectedFiles.length; i++) {
-                currentProcessingIndex = i;
-                const archivo = selectedFiles[i];
-                const numeroCliente = extractNumeroClienteFromFileName(archivo.name);
+            async function procesarArchivos() {
+                if (isProcessing) return;
                 
-                const operationId = `op-${Date.now()}-${i}`;
-                addToResultsTable({
-                    id: operationId,
-                    numero: numeroCliente || 'N/A',
-                    nombre: 'Procesando...',
-                    dni: 'Procesando...',
-                    importe: 'Procesando...',
-                    estado: 'Procesando'
-                });
+                if (selectedFiles.length === 0 || !excelFileInput.files[0]) {
+                    mostrarResultado('Por favor complete todos los campos', true);
+                    return;
+                }
+
+                isProcessing = true;
+                generateBtn.disabled = true;
+                progressContainer.classList.remove('hidden');
+                updateProgress(0, selectedFiles.length);
                 
-                try {
-                    if (!numeroCliente) {
-                        throw new Error('No se pudo detectar el número de cliente del nombre del archivo');
-                    }
-
-                    // Configurar timeout para la petición
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 segundos
-
-                    const formData = new FormData();
-                    formData.append('pdf_file', archivo);
-                    formData.append('additional_data', numeroCliente);
-                    formData.append('excel_file', excelInput.files[0]);
+                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+                
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const archivo = selectedFiles[i];
+                    const numeroCliente = archivo.name.match(/\d+/)?.[0] || 'N/A';
                     
-                    const response = await fetch('/procesar-nota/', {
-                        method: 'POST',
-                        body: formData,
-                        headers: {
-                            'X-CSRFToken': csrfToken
-                        },
-                        signal: controller.signal
+                    addToResultsTable({
+                        numero: numeroCliente,
+                        nombre: 'Procesando...',
+                        dni: 'Procesando...',
+                        importe: 'Procesando...',
+                        estado: 'Procesando'
                     });
-                    clearTimeout(timeoutId);
-
-                    if (!response.ok) {
-                        let errorMsg = `Error ${response.status}`;
-                        try {
-                            const errorData = await response.json();
-                            errorMsg += `: ${errorData.error || 'Error al procesar la nota'}`;
-                        } catch (e) {
-                            errorMsg += `: ${await response.text()}`;
-                        }
-                        throw new Error(errorMsg);
-                    }
-
-                    const responseData = await response.json();
                     
-                    // Convertir base64 a Blob
-                    const byteCharacters = atob(responseData.pdf);
-                    const byteNumbers = new Array(byteCharacters.length);
-                    for (let i = 0; i < byteCharacters.length; i++) {
-                        byteNumbers[i] = byteCharacters.charCodeAt(i);
-                    }
-                    const byteArray = new Uint8Array(byteNumbers);
-                    const pdfBlob = new Blob([byteArray], {type: 'application/pdf'});
-                    
-                    // Extraer datos financieros
-                    let importe = responseData.text_data.financial_data?.amount?.toString() || "No encontrado";
-                    if (importe === "No encontrado") {
-                        const importeMatch = responseData.text_data.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
-                        if (importeMatch && importeMatch[1]) {
-                            importe = importeMatch[1].replace('.', '').replace(',', '.');
+                    try {
+                        const formData = new FormData();
+                        formData.append('pdf_file', archivo);
+                        formData.append('additional_data', numeroCliente);
+                        formData.append('excel_file', excelFileInput.files[0]);
+                        
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), fetchConfig.timeout);
+                        
+                        let response;
+                        let attempts = 0;
+                        
+                        while (attempts <= fetchConfig.retries) {
+                            try {
+                                response = await fetch('/procesar-nota/', {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: {
+                                        'X-CSRFToken': csrfToken
+                                    },
+                                    signal: controller.signal
+                                });
+                                clearTimeout(timeoutId);
+                                break;
+                            } catch (error) {
+                                attempts++;
+                                if (attempts > fetchConfig.retries) throw error;
+                                await new Promise(resolve => setTimeout(resolve, fetchConfig.retryDelay));
+                            }
                         }
-                    }
-
-                    const esRepetido = esOperacionRepetida(numeroCliente, importe);
-                    const estadoFinal = esRepetido ? 'Repetido' : 'Completado';
-
-                    if (!esRepetido) {
+                        
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => null);
+                            throw new Error(errorData?.error || `Error ${response.status}`);
+                        }
+                        
+                        const responseData = await response.json();
+                        
+                        updateRowStatus(i, {
+                            nombre: responseData.cliente_data.nombre,
+                            dni: responseData.cliente_data.dni,
+                            importe: responseData.text_data.financial_data.amount || 'No encontrado',
+                            estado: 'Completado'
+                        });
+                        
                         // Descargar PDF
-                        const pdfUrl = URL.createObjectURL(pdfBlob);
+                        const byteCharacters = atob(responseData.pdf);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], {type: 'application/pdf'});
+                        const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
-                        a.href = pdfUrl;
-                        
-                        const nombreCliente = responseData.cliente_data?.nombre || 'cliente';
-                        const dniCliente = responseData.cliente_data?.dni || '';
-                        const fecha = new Date().toISOString().slice(0, 10);
-                        a.download = `Nota_${numeroCliente}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
-                        
+                        a.href = url;
+                        a.download = `nota_${numeroCliente}.pdf`;
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-                        window.URL.revokeObjectURL(pdfUrl);
+                        URL.revokeObjectURL(url);
+                        
+                        mostrarResultado(`Archivo ${archivo.name} procesado correctamente`);
+                        
+                    } catch (error) {
+                        console.error(`Error procesando ${archivo.name}:`, error);
+                        updateRowStatus(i, {
+                            estado: 'Error',
+                            importe: 'Error'
+                        });
+                        
+                        mostrarResultado(`Error procesando ${archivo.name}: ${error.message}`, true);
+                    } finally {
+                        updateProgress(i + 1, selectedFiles.length);
                     }
-
-                    // Actualizar fila con todos los datos
-                    updateRowStatus(operationId, estadoFinal, {
-                        nombre: responseData.cliente_data?.nombre || 'No encontrado',
-                        dni: responseData.cliente_data?.dni || 'No encontrado',
-                        importe: importe
-                    });
-                    
-                    // Actualizar el historial de operaciones
-                    const opIndex = operationsHistory.findIndex(op => op.id === operationId);
-                    if (opIndex !== -1) {
-                        operationsHistory[opIndex] = {
-                            ...operationsHistory[opIndex],
-                            nombre: responseData.cliente_data?.nombre || 'No encontrado',
-                            dni: responseData.cliente_data?.dni || 'No encontrado',
-                            importe: importe,
-                            estado: estadoFinal
-                        };
-                    }
-                    
-                    mostrarResultado(
-                        esRepetido ? 
-                            `⚠️ ${archivo.name} es repetido (mismo cliente e importe)` : 
-                            `✅ ${archivo.name} procesado correctamente (${i+1}/${selectedFiles.length})`,
-                        false, 
-                        false, 
-                        false,
-                        esRepetido
-                    );
-                    
-                } catch (error) {
-                    console.error(`Error procesando ${archivo.name}:`, error);
-                    updateRowStatus(operationId, 'Error');
-                    
-                    const opIndex = operationsHistory.findIndex(op => op.id === operationId);
-                    if (opIndex !== -1) {
-                        operationsHistory[opIndex].estado = 'Error';
-                    }
-                    
-                    let errorMessage = error.message;
-                    if (error.name === 'AbortError') {
-                        errorMessage = 'Tiempo de espera agotado. El servidor tardó demasiado en responder.';
-                    }
-                    
-                    mostrarResultado(`❌ Error procesando ${archivo.name}: ${errorMessage}`, true);
-                } finally {
-                    updateProgress(i + 1, selectedFiles.length);
                 }
+                
+                isProcessing = false;
+                generateBtn.disabled = false;
             }
-            
-            isProcessing = false;
-            generateBtn.disabled = false;
-            generateBtn.textContent = 'Generar Notas PDF';
-            mostrarResultado('✅ Procesamiento completado');
-        }
+        });
     </script>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </body>
 </html>
