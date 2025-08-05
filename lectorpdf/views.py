@@ -116,7 +116,7 @@ class NotaGeneradaView(APIView):
                 nombre_cliente = cliente_info['nombre']
                 dni_cliente = cliente_info.get('dni', '')
                 
-                # Limpiar nombre del cliente para el archivo
+               
                 nombre_cliente = limpiar_nombre_archivo(nombre_cliente)
                 nombre_cliente = nombre_cliente.replace(' ', '_')[:50]
                 dni_cliente = str(dni_cliente).strip()
