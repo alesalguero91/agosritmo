@@ -79,13 +79,21 @@ class ProcesarNotaView(APIView):
                 )
             
             logger.info("Procesamiento completado exitosamente")
-            return Response({
+            
+            # Crear respuesta con todos los datos necesarios
+            response_data = {
                 'pdf': resultado['pdf'],
                 'text_data': {
                     'text': texto_extraido.get('full_text', ''),
                     'financial_data': texto_extraido.get('financial_data', {})
+                },
+                'cliente_data': {
+                    'nombre': nombre_cliente,
+                    'dni': dni_cliente
                 }
-            }, status=status.HTTP_200_OK)
+            }
+            
+            return Response(response_data, status=status.HTTP_200_OK)
             
         except Exception as e:
             logger.error(f"Error en ProcesarNotaView: {str(e)}\n{traceback.format_exc()}")

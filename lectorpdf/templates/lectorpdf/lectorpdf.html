@@ -351,7 +351,7 @@
             document.getElementById('exportExcelBtn').classList.remove('hidden');
         }
 
-        function updateRowStatus(id, newStatus, importe = '') {
+        function updateRowStatus(id, newStatus, newData = {}) {
             const row = document.getElementById(`row-${id}`);
             if (row) {
                 const statusCell = row.querySelector('td:last-child');
@@ -361,16 +361,23 @@
                 if (newStatus === 'Error') {
                     row.classList.add('error-row');
                     row.classList.remove('processing-row', 'repetido-row');
-                } else if (newStatus === 'Completado') {
-                    row.classList.remove('processing-row', 'repetido-row');
-                    if (importe) {
-                        row.cells[3].textContent = importe;
+                } else if (newStatus === 'Completado' || newStatus === 'Repetido') {
+                    if (newStatus === 'Completado') {
+                        row.classList.remove('processing-row', 'repetido-row');
+                    } else {
+                        row.classList.add('repetido-row');
+                        row.classList.remove('processing-row');
                     }
-                } else if (newStatus === 'Repetido') {
-                    row.classList.add('repetido-row');
-                    row.classList.remove('processing-row');
-                    if (importe) {
-                        row.cells[3].textContent = importe;
+                    
+                    // Actualizar datos si se proporcionan
+                    if (newData.nombre) {
+                        row.cells[1].textContent = newData.nombre;
+                    }
+                    if (newData.dni) {
+                        row.cells[2].textContent = newData.dni;
+                    }
+                    if (newData.importe) {
+                        row.cells[3].textContent = newData.importe;
                     }
                 }
             }
@@ -452,22 +459,12 @@
                 const archivo = selectedFiles[i];
                 const numeroCliente = extractNumeroClienteFromFileName(archivo.name);
                 
-                let excelData = {};
-                try {
-                    excelData = await parseExcel(excelInput.files[0], numeroCliente);
-                } catch (error) {
-                    excelData = {
-                        nombre: 'No encontrado',
-                        dni: 'No encontrado'
-                    };
-                }
-                
                 const operationId = `op-${Date.now()}-${i}`;
                 addToResultsTable({
                     id: operationId,
                     numero: numeroCliente || 'N/A',
-                    nombre: excelData.nombre || 'No encontrado',
-                    dni: excelData.dni || 'No encontrado',
+                    nombre: 'Procesando...',
+                    dni: 'Procesando...',
                     importe: 'Procesando...',
                     estado: 'Procesando'
                 });
@@ -519,7 +516,7 @@
                     const pdfBlob = new Blob([byteArray], {type: 'application/pdf'});
                     
                     // Extraer datos financieros
-                    const importe = responseData.text_data.financial_data?.amount?.toString() || "No encontrado";
+                    let importe = responseData.text_data.financial_data?.amount?.toString() || "No encontrado";
                     if (importe === "No encontrado") {
                         const importeMatch = responseData.text_data.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
                         if (importeMatch && importeMatch[1]) {
@@ -536,8 +533,8 @@
                         const a = document.createElement('a');
                         a.href = pdfUrl;
                         
-                        const nombreCliente = excelData.nombre || 'cliente';
-                        const dniCliente = excelData.dni || '';
+                        const nombreCliente = responseData.cliente_data?.nombre || 'cliente';
+                        const dniCliente = responseData.cliente_data?.dni || '';
                         const fecha = new Date().toISOString().slice(0, 10);
                         a.download = `Nota_${numeroCliente}_${dniCliente}_${nombreCliente.replace(/\s+/g, '_')}_${fecha}.pdf`;
                         
@@ -547,12 +544,20 @@
                         window.URL.revokeObjectURL(pdfUrl);
                     }
 
-                    updateRowStatus(operationId, estadoFinal, importe);
+                    // Actualizar fila con todos los datos
+                    updateRowStatus(operationId, estadoFinal, {
+                        nombre: responseData.cliente_data?.nombre || 'No encontrado',
+                        dni: responseData.cliente_data?.dni || 'No encontrado',
+                        importe: importe
+                    });
                     
+                    // Actualizar el historial de operaciones
                     const opIndex = operationsHistory.findIndex(op => op.id === operationId);
                     if (opIndex !== -1) {
                         operationsHistory[opIndex] = {
                             ...operationsHistory[opIndex],
+                            nombre: responseData.cliente_data?.nombre || 'No encontrado',
+                            dni: responseData.cliente_data?.dni || 'No encontrado',
                             importe: importe,
                             estado: estadoFinal
                         };
@@ -592,52 +597,6 @@
             generateBtn.disabled = false;
             generateBtn.textContent = 'Generar Notas PDF';
             mostrarResultado('✅ Procesamiento completado');
-        }
-
-        async function parseExcel(excelFile, numeroCliente) {
-            return new Promise((resolve, reject) => {
-                try {
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        try {
-                            const data = new Uint8Array(e.target.result);
-                            const workbook = XLSX.read(data, { type: 'array' });
-                            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-                            
-                            const findColumn = (row, possibleNames) => {
-                                const lowerNames = possibleNames.map(n => n.toLowerCase());
-                                for (const key in row) {
-                                    if (lowerNames.includes(key.toLowerCase())) {
-                                        return row[key];
-                                    }
-                                }
-                                return null;
-                            };
-                            
-                            const cliente = jsonData.find(row => {
-                                const cuenta = findColumn(row, ['cuenta', 'Cuenta', 'CUENTA', 'account']);
-                                return cuenta && cuenta.toString() === numeroCliente.toString();
-                            });
-                            
-                            if (!cliente) {
-                                throw new Error(`Cliente con número ${numeroCliente} no encontrado`);
-                            }
-                            
-                            resolve({
-                                nombre: findColumn(cliente, ['nombre', 'Nombre', 'NOMBRE', 'name']) || '',
-                                dni: findColumn(cliente, ['dni', 'DNI', 'documento']) || ''
-                            });
-                        } catch (e) {
-                            reject(e);
-                        }
-                    };
-                    reader.onerror = () => reject(new Error('Error al leer el archivo Excel'));
-                    reader.readAsArrayBuffer(excelFile);
-                } catch (e) {
-                    reject(e);
-                }
-            });
         }
     </script>
     
