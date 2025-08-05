@@ -479,15 +479,16 @@
 
                     // Configurar timeout para la petición
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 segundos
+                    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 segundos
 
-                    const pdfFormData = new FormData();
-                    pdfFormData.append('pdf_file', archivo);
+                    const formData = new FormData();
+                    formData.append('pdf_file', archivo);
+                    formData.append('additional_data', numeroCliente);
+                    formData.append('excel_file', excelInput.files[0]);
                     
-                    // Extraer texto del PDF
-                    const extractResponse = await fetch('/upload-pdf/', {
+                    const response = await fetch('/procesar-nota/', {
                         method: 'POST',
-                        body: pdfFormData,
+                        body: formData,
                         headers: {
                             'X-CSRFToken': csrfToken
                         },
@@ -495,23 +496,32 @@
                     });
                     clearTimeout(timeoutId);
 
-                    if (!extractResponse.ok) {
-                        let errorMsg = `Error ${extractResponse.status}`;
+                    if (!response.ok) {
+                        let errorMsg = `Error ${response.status}`;
                         try {
-                            const errorData = await extractResponse.json();
-                            errorMsg += `: ${errorData.error || 'Error al extraer texto'}`;
+                            const errorData = await response.json();
+                            errorMsg += `: ${errorData.error || 'Error al procesar la nota'}`;
                         } catch (e) {
-                            errorMsg += `: ${await extractResponse.text()}`;
+                            errorMsg += `: ${await response.text()}`;
                         }
                         throw new Error(errorMsg);
                     }
 
-                    const extractData = await extractResponse.json();
-                    console.log('Texto extraído:', extractData.text);
-
-                    let importe = extractData.financial_data?.amount?.toString() || "No encontrado";
+                    const responseData = await response.json();
+                    
+                    // Convertir base64 a Blob
+                    const byteCharacters = atob(responseData.pdf);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const pdfBlob = new Blob([byteArray], {type: 'application/pdf'});
+                    
+                    // Extraer datos financieros
+                    const importe = responseData.text_data.financial_data?.amount?.toString() || "No encontrado";
                     if (importe === "No encontrado") {
-                        const importeMatch = extractData.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
+                        const importeMatch = responseData.text_data.text.match(/(?:importe|total|monto)[:\s]*\$?\s*([\d,.]+)/i);
                         if (importeMatch && importeMatch[1]) {
                             importe = importeMatch[1].replace('.', '').replace(',', '.');
                         }
@@ -521,40 +531,10 @@
                     const estadoFinal = esRepetido ? 'Repetido' : 'Completado';
 
                     if (!esRepetido) {
-                        // Configurar timeout para la generación de nota
-                        const notaController = new AbortController();
-                        const notaTimeoutId = setTimeout(() => notaController.abort(), 120000); // 120 segundos
-
-                        const notaFormData = new FormData();
-                        notaFormData.append('pdf_file', archivo);
-                        notaFormData.append('additional_data', numeroCliente);
-                        notaFormData.append('excel_file', excelInput.files[0]);
-                        
-                        const response = await fetch('/generar-nota/', {
-                            method: 'POST',
-                            body: notaFormData,
-                            headers: {
-                                'X-CSRFToken': csrfToken
-                            },
-                            signal: notaController.signal
-                        });
-                        clearTimeout(notaTimeoutId);
-
-                        if (!response.ok) {
-                            let errorMsg = `Error ${response.status}`;
-                            try {
-                                const errorData = await response.json();
-                                errorMsg += `: ${errorData.error || 'Error al generar la nota'}`;
-                            } catch (e) {
-                                errorMsg += `: ${await response.text()}`;
-                            }
-                            throw new Error(errorMsg);
-                        }
-
-                        const blob = await response.blob();
-                        const url = window.URL.createObjectURL(blob);
+                        // Descargar PDF
+                        const pdfUrl = URL.createObjectURL(pdfBlob);
                         const a = document.createElement('a');
-                        a.href = url;
+                        a.href = pdfUrl;
                         
                         const nombreCliente = excelData.nombre || 'cliente';
                         const dniCliente = excelData.dni || '';
@@ -564,7 +544,7 @@
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-                        window.URL.revokeObjectURL(url);
+                        window.URL.revokeObjectURL(pdfUrl);
                     }
 
                     updateRowStatus(operationId, estadoFinal, importe);
