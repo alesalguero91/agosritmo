@@ -1,48 +1,79 @@
-# documentos/utils/pdf_processing.py
-
-from PIL import Image
+from PIL import Image, ImageOps
 import fitz 
 import pytesseract
 import io
 import re
 import logging
+import traceback
+
+
 
 logger = logging.getLogger(__name__)
 
-
 def convert_image_to_pdf(image_file):
-    image = Image.open(image_file)
-    rgb_image = image.convert('RGB')
-    output = io.BytesIO()
-    rgb_image.save(output, format='PDF')
-    output.seek(0)
-    return output
+    try:
+        image_file.seek(0)
+        image = Image.open(image_file)
+        if image.mode in ('RGBA', 'P'):
+            image = image.convert('RGB')
+        
+        output = io.BytesIO()
+        image.save(output, format='PDF', quality=100)
+        output.seek(0)
+        return output
+    except Exception as e:
+        logger.error(f"Error en convert_image_to_pdf: {str(e)}")
+        raise
 
 def extract_text_from_pdf(pdf_file):
-    pdf_file.seek(0)
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+    try:
+        pdf_file.seek(0)
+        doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+        if len(doc) == 0:
+            raise ValueError("PDF vacío")
+            
+        text = ""
+        for page in doc:
+            text += page.get_text() or ""
+        return text.strip()
+    except Exception as e:
+        logger.error(f"Error en extract_text_from_pdf: {str(e)}")
+        raise
 
 def perform_ocr_on_pdf(pdf_file, lang='spa'):
-    pdf_file.seek(0)
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    text = ""
-    for page in doc:
-        pix = page.get_pixmap()
-        img_data = pix.tobytes("png")
-        image = Image.open(io.BytesIO(img_data))
-        text += pytesseract.image_to_string(image, lang=lang) + "\n"
-    return text
+    try:
+        pdf_file.seek(0)
+        doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+        if len(doc) == 0:
+            raise ValueError("PDF vacío")
+            
+        text = ""
+        for page in doc:
+            pix = page.get_pixmap()
+            img_data = pix.tobytes("png")
+            image = Image.open(io.BytesIO(img_data))
+            
+            # Mejorar calidad de imagen para OCR
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+                
+            image = ImageOps.autocontrast(image)
+            text += pytesseract.image_to_string(image, lang=lang) + "\n"
+            
+        return text.strip()
+    except Exception as e:
+        logger.error(f"Error en perform_ocr_on_pdf: {str(e)}")
+        raise
 
 def extract_financial_data(text):
+    if not text:
+        return {'amount': None, 'cbu_cvu': None}
+    
     amount_patterns = [
-        r'(?:importe|monto)\s*[:=]?\s*\$\s*([\d.,]+)',  # "Importe: $1.234,56"
-        r'(?:importe|monto)\s*[:=]?\s*([\d.,]+)',       # "Monto 1.234,56"
-        r'\$\s*([\d.,]+)',                              # "$ 1.234,56"
-        r'(?<!\d)(\d[\d.,]*\d)(?!\d)'                   # "1234.56" (standalone number)
+        r'(?:importe|monto|total)\s*[:=]?\s*\$\s*([\d.,]+)',  # "Importe: $1.234,56"
+        r'(?:importe|monto|total)\s*[:=]?\s*([\d.,]+)',       # "Monto 1.234,56"
+        r'\$\s*([\d.,]+)',                                    # "$ 1.234,56"
+        r'(?<!\d)(\d{1,3}(?:\.?\d{3})*(?:,\d{2})?)(?!\d)'    # "1.234,56" o "1234,56"
     ]
     
     amount = None
@@ -50,9 +81,9 @@ def extract_financial_data(text):
         amount_match = re.search(pattern, text, re.IGNORECASE)
         if amount_match:
             amount_str = amount_match.group(1)
-            # Normalización del formato numérico
-            amount_str = amount_str.replace('.', '').replace(',', '.')
             try:
+                # Normalización del formato numérico
+                amount_str = amount_str.replace('.', '').replace(',', '.')
                 amount = float(amount_str)
                 break  # Nos quedamos con la primera coincidencia válida
             except ValueError:
@@ -73,8 +104,6 @@ def extract_financial_data(text):
 def process_pdf_or_image(file):
     """
     Procesa archivo PDF o imagen para extraer texto y datos financieros
-    :param file: Archivo subido (PDF o imagen)
-    :return: Dict con texto completo y datos financieros
     """
     try:
         is_pdf = (
@@ -86,13 +115,18 @@ def process_pdf_or_image(file):
         # Convertir imagen a PDF si es necesario
         if not is_pdf:
             file = convert_image_to_pdf(file)
+        else:
+            # Si es PDF, crear una copia para no modificar el original
+            file_content = file.read()
+            file = io.BytesIO(file_content)
+            file.seek(0)
 
         # Primero intentar extracción directa de texto
         text = extract_text_from_pdf(file)
 
         # Si no se extrajo texto, intentar OCR
         if not text.strip():
-            file.seek(0)  # Reiniciar posición del archivo
+            file.seek(0)
             text = perform_ocr_on_pdf(file)
 
         if not text.strip():
@@ -107,5 +141,5 @@ def process_pdf_or_image(file):
         }
 
     except Exception as e:
-        logger.error(f"Error en process_pdf_or_image: {str(e)}", exc_info=True)
+        logger.error(f"Error en process_pdf_or_image: {str(e)}\n{traceback.format_exc()}")
         raise ValueError(f"Error procesando archivo: {str(e)}")

@@ -12,6 +12,7 @@ import os
 import base64
 import logging
 import traceback
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,10 @@ def pdf_to_ultra_quality_image(pdf_file):
     try:
         pdf_file.seek(0)
         doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-        page = doc.load_page(0)
+        if len(doc) == 0:
+            raise ValueError("PDF vacío")
         
+        page = doc.load_page(0)
         zoom = 4
         mat = fitz.Matrix(zoom, zoom)
         
@@ -46,14 +49,17 @@ def pdf_to_ultra_quality_image(pdf_file):
 
 def buscar_cliente_en_excel(df, cliente_id):
     try:
+        if df.empty:
+            raise ValueError("DataFrame de Excel vacío")
+            
         df.columns = df.columns.str.lower().str.strip()
         cliente_str = str(cliente_id).strip()
         
-        posibles_columnas = ['cuenta', 'nro cuenta', 'numero cuenta']
+        posibles_columnas = ['cuenta', 'nro cuenta', 'numero cuenta', 'número cuenta']
         columna_encontrada = next((col for col in posibles_columnas if col in df.columns), None)
         
         if not columna_encontrada:
-            raise ValueError("No se encontró columna de cuenta/cliente")
+            raise ValueError("No se encontró columna de cuenta/cliente en Excel")
         
         df[columna_encontrada] = df[columna_encontrada].astype(str).str.strip()
         cliente_data = df[df[columna_encontrada] == cliente_str]
@@ -63,12 +69,26 @@ def buscar_cliente_en_excel(df, cliente_id):
         
         datos = cliente_data.iloc[0].to_dict()
         
-        dni = next(str(datos[col]) for col in ['dni', 'documento'] if col in datos and pd.notna(datos[col]))
-        nombre = next(str(datos[col]) for col in ['nombre', 'nombre completo'] if col in datos and pd.notna(datos[col]))
+        # Buscar DNI
+        dni = None
+        for col in ['dni', 'documento', 'nro documento']:
+            if col in datos and pd.notna(datos[col]):
+                dni = str(datos[col])
+                break
+        
+        # Buscar nombre
+        nombre = None
+        for col in ['nombre', 'nombre completo', 'cliente']:
+            if col in datos and pd.notna(datos[col]):
+                nombre = str(datos[col])
+                break
+        
+        if not nombre:
+            raise ValueError("No se encontró el nombre del cliente en Excel")
         
         return {
             'nroCliente': str(datos[columna_encontrada]),
-            'dni': dni,
+            'dni': dni or '',
             'Nombre': nombre
         }
     except Exception as e:
@@ -78,26 +98,39 @@ def buscar_cliente_en_excel(df, cliente_id):
 def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_data=None):
     buffer = io.BytesIO()
     temp_file = None
+    img = None
     
     try:
         if not excel_data:
             return {'error': True, 'message': 'Se requiere archivo Excel'}
         
         excel_data.seek(0)
-        df = pd.read_excel(excel_data)
-        dats = buscar_cliente_en_excel(df, additional_data)
-        if not dats:
-            return {'error': True, 'message': f'Cuenta {additional_data} no existe'}
+        try:
+            df = pd.read_excel(excel_data)
+            if df.empty:
+                return {'error': True, 'message': 'El archivo Excel está vacío'}
+                
+            datos = buscar_cliente_en_excel(df, additional_data)
+            if not datos:
+                return {'error': True, 'message': f'Cuenta {additional_data} no existe en el Excel'}
+        except Exception as e:
+            logger.error(f"Error procesando Excel: {str(e)}")
+            return {'error': True, 'message': f'Error procesando archivo Excel: {str(e)}'}
 
-        if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
-            img = pdf_to_ultra_quality_image(image_or_pdf_file)
-        else:
-            img = Image.open(image_or_pdf_file)
-            if img.mode in ('RGBA', 'P'):
-                img = img.convert('RGB')
-            if img.width > 2000 or img.height > 2000:
-                img = ImageOps.autocontrast(img, cutoff=3)
-                img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+        try:
+            image_or_pdf_file.seek(0)
+            if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
+                img = pdf_to_ultra_quality_image(image_or_pdf_file)
+            else:
+                img = Image.open(image_or_pdf_file)
+                if img.mode in ('RGBA', 'P'):
+                    img = img.convert('RGB')
+                if img.width > 2000 or img.height > 2000:
+                    img = ImageOps.autocontrast(img, cutoff=3)
+                    img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+        except Exception as e:
+            logger.error(f"Error procesando imagen/PDF: {str(e)}")
+            return {'error': True, 'message': f'Error procesando archivo: {str(e)}'}
 
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
@@ -131,11 +164,11 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
 <font name="Times-Roman" size="10"><b>FECHA DE PRESENTACIÓN DE NOTA: {fecha_actual}</b></font><br/>
 <b>___________________________________________________________________________________________</b>
 
-<font name="Times-Roman" size="8"><b>Cuenta: </b>{dats['nroCliente']}</font><br/>
+<font name="Times-Roman" size="8"><b>Cuenta: </b>{datos['nroCliente']}</font><br/>
 
-<font name="Times-Roman" size="8"><b>Nombre:</b> {dats['Nombre']}</font><br/>
+<font name="Times-Roman" size="8"><b>Nombre:</b> {datos['Nombre']}</font><br/>
 
-<font name="Times-Roman" size="8"><b>DNI: </b>{dats['dni']}</font><br/>
+<font name="Times-Roman" size="8"><b>DNI: </b>{datos['dni']}</font><br/>
 <b>___________________________________________________________________________________________</b>
 
 <font name="Times-Roman" size="8">Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de 
@@ -188,7 +221,13 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
         }
         
     finally:
-        buffer.close()
+        if img:
+            try:
+                img.close()
+            except:
+                pass
+        if buffer and not buffer.closed:
+            buffer.close()
         if temp_file and os.path.exists(temp_file.name):
             try:
                 os.unlink(temp_file.name)
