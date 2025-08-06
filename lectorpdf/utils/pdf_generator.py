@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -10,18 +10,44 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph, Frame
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 def pdf_to_image(pdf_file):
-    """Convierte la primera página de un PDF a imagen"""
-    pdf_file.seek(0)
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    page = doc.load_page(0)
-    pix = page.get_pixmap(dpi=200)
-    img_data = pix.tobytes("png")
-    return Image.open(io.BytesIO(img_data))
+    """Convierte PDF a imagen con calidad adecuada"""
+    try:
+        pdf_file.seek(0)
+        doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+        page = doc.load_page(0)
+        pix = page.get_pixmap(dpi=200)
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+        return img
+    except Exception as e:
+        logger.error(f"Error al convertir PDF a imagen: {str(e)}")
+        raise
+
+def mejorar_imagen(img):
+    """Aplica mejoras moderadas a la imagen"""
+    try:
+        # Convertir a RGB si es necesario
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Mejorar contraste moderadamente
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.2)  # Aumento moderado del 20%
+        
+        # Aplicar suavizado ligero
+        img = img.filter(ImageFilter.SMOOTH)
+        
+        return img
+    except Exception as e:
+        logger.error(f"Error al mejorar imagen: {str(e)}")
+        return img
 
 def buscar_cliente_en_excel(df, cliente_id):
-    """Busca un cliente en el DataFrame del Excel por número de cliente/cuenta"""
+    """Busca cliente en Excel (código original)"""
     df.columns = df.columns.str.lower().str.strip()
     cliente_str = str(cliente_id).strip()
     
@@ -82,7 +108,6 @@ def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data, excel_dat
                 'message': f'La cuenta {additional_data} no existe en el archivo Excel'
             }
         
-        # Texto original como fue proporcionado
         TEXTO_NOTA = f"""
 <b>_________________________________________________________________________________________</b>
 <font name="Times-Roman" size="10"><b>PARA:</b> ADMINISTRACIÓN / <b>DE:</b> GESTION Y MORA/ <b>ASUNTO:</b> AUTORIZACIÓN DE PAGO</font><br/><br/>
@@ -103,7 +128,6 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
 
 <font name="Times-Roman" size="8">Sin más atte.</font>
 """
-        # Configurar fuente Times New Roman
         try:
             pdfmetrics.registerFont(TTFont('Times-Roman', 'Times New Roman.ttf'))
             pdfmetrics.registerFont(TTFont('Times-Bold', 'Times New Roman Bold.ttf'))
@@ -116,21 +140,16 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
             image = pdf_to_image(image_or_pdf_file)
         else:
             image = Image.open(image_or_pdf_file)
-        
-        # Convertir a RGB si es necesario
-        if image.mode in ('RGBA', 'P'):
-            image = image.convert('RGB')
+            image = mejorar_imagen(image)
 
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
 
-        # Configuración de márgenes
         left_margin = 50
         right_margin = 50
         available_width = width - left_margin - right_margin
         
-        # Estilo para el texto
         styles = getSampleStyleSheet()
         custom_style = ParagraphStyle(
             name='Custom',
@@ -143,9 +162,8 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
             alignment=4
         )
 
-        # Crear frame para el texto (posición más alta)
         frame = Frame(
-            left_margin, height - 350,  # Ajustado para dejar más espacio para la imagen
+            left_margin, height - 350,
             available_width, 300,
             leftPadding=0,
             bottomPadding=0,
@@ -154,36 +172,32 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
             showBoundary=0
         )
         
-        # Añadir texto al frame
         story = [Paragraph(TEXTO_NOTA, custom_style)]
         frame.addFromList(story, c)
 
-        # Procesar imagen y colocarla más arriba
+        # Insertar imagen
         image_width, image_height = image.size
-        max_image_width = width * 0.6
-        max_image_height = height * 0.4
+        max_image_width = width * 0.8
+        max_image_height = height * 0.5
         
-        # Calcular ratio de escalado
         ratio = min(max_image_width / image_width, max_image_height / image_height)
         resized_width = image_width * ratio
         resized_height = image_height * ratio
         
-        # Posición más alta para la imagen (ajustado a 150 en lugar de 50)
-        image_y = 150  # Aumentado para subir la imagen
-        
-        # Guardar imagen redimensionada
+        image_y = 120
+
         img_io = io.BytesIO()
-        image_resized = image.resize((int(resized_width), int(resized_height)))
-        image_resized.save(img_io, format="PNG")
+        image.save(img_io, format="PNG", quality=90)
         img_io.seek(0)
         
-        # Dibujar imagen en el PDF
         c.drawImage(
             ImageReader(img_io),
-            x=(width - resized_width) / 2,  # Centrado
+            x=(width - resized_width) / 2,
             y=image_y,
             width=resized_width,
-            height=resized_height
+            height=resized_height,
+            preserveAspectRatio=True,
+            mask='auto'
         )
 
         c.showPage()
@@ -196,188 +210,8 @@ MACRO</b> CTA Nº <b>3140000023459615</b> -</font><br/><br/>
         }
         
     except Exception as e:
-        print(f"Error en generar_pdf_con_texto_y_imagen: {str(e)}")
+        logger.error(f"Error al generar PDF: {str(e)}")
         return {
             'error': True,
             'message': f'Error al generar PDF: {str(e)}'
         }
-    
-
-"""
-API_BASE_URL = "http://127.0.0.1:8000/api/clients/"
-
-def obtener_datos_cliente(cliente):
-    print("Aqui")
-    try:
-        response = requests.get(f"{API_BASE_URL}{cliente}")
-        print(f"{API_BASE_URL}{cliente}")
-        response.raise_for_status()  # Lanza excepción si hay error HTTP
-        print("buscado")
-        return response.json()
-        
-    except requests.RequestException as e:
-        print(f"Error al obtener datos del cliente: {e}")
-        return None
-
-
-def pdf_to_image(pdf_file):
-    pdf_file.seek(0)
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    page = doc.load_page(0)
-    pix = page.get_pixmap(dpi=200)
-    img_data = pix.tobytes("png")
-    image = Image.open(io.BytesIO(img_data))
-    return image
-
-
-def generar_pdf_con_texto_y_imagen(image_or_pdf_file, additional_data):
-
-    dats = obtener_datos_cliente(additional_data)
-    print(dats)
-
-    nro = dats.get("nroCliente", "N/A") if dats else "N/A"
-    dni = dats.get("dni", "N/A") if dats else "N/A"
-    nombre = dats.get("Nombre", "N/A") if dats else "N/A"
-
-    TEXTO_NOTA = fPARA: ADMINISTRACIÓN
-DE: GESTIÓN Y MORA
-ASUNTO: AUTORIZACIÓN DE PAGO
-
-FECHA DE PRESENTACIÓN DE NOTA:
-
-CUENTA: {nro}
-NOMBRE: {nombre}
-DNI: {dni}
-
-Por medio de la presente solicito, se autorice la acreditación de la transferencia adjunta para ser acreditada en la cuenta de referencia MACRO CTA Nº 314000023459615.
-
-Sin más, atte.
-
-
-    if hasattr(image_or_pdf_file, 'name') and image_or_pdf_file.name.lower().endswith('.pdf'):
-        image = pdf_to_image(image_or_pdf_file)
-    else:
-        image = Image.open(image_or_pdf_file)
-
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-
-    # Configuraciones
-    left_margin = 50
-    right_margin = 50
-    top_margin = height - 50
-    available_width = width - left_margin - right_margin
-    line_height = 14
-    font_size = 11
-
-    # Crear estilo para el párrafo
-    styles = getSampleStyleSheet()
-    style = ParagraphStyle(
-        'nota_style',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=font_size,
-        leading=line_height,
-        alignment=TA_LEFT,
-        leftIndent=0,
-        rightIndent=0,
-        spaceBefore=0,
-        spaceAfter=0,
-    )
-
-    # Dividir el texto en líneas que quepan en el ancho disponible
-    text_lines = []
-    for line in TEXTO_NOTA.split("\n"):
-        if not line.strip():
-            text_lines.append(line)
-            continue
-            
-        words = line.split()
-        current_line = words[0] if words else ""
-        for word in words[1:]:
-            test_line = f"{current_line} {word}"
-            if c.stringWidth(test_line, "Helvetica", font_size) <= available_width:
-                current_line = test_line
-            else:
-                text_lines.append(current_line)
-                current_line = word
-        text_lines.append(current_line)
-
-
-    text_height = len(text_lines) * line_height
-
-
-    image_width, image_height = image.size
-    max_image_width = width * 0.6
-    ratio = max_image_width / image_width
-    resized_height = image_height * ratio
-    
-
-    required_space = text_height + resized_height + 100 
-    
-
-    while required_space > height - 100 and font_size > 8:
-        font_size -= 0.5
-        line_height = font_size + 3
-        style.fontSize = font_size
-        style.leading = line_height
-        
- 
-        text_lines = []
-        for line in TEXTO_NOTA.split("\n"):
-            if not line.strip():
-                text_lines.append(line)
-                continue
-                
-            words = line.split()
-            current_line = words[0] if words else ""
-            for word in words[1:]:
-                test_line = f"{current_line} {word}"
-                if c.stringWidth(test_line, "Helvetica", font_size) <= available_width:
-                    current_line = test_line
-                else:
-                    text_lines.append(current_line)
-                    current_line = word
-            text_lines.append(current_line)
-        
-        text_height = len(text_lines) * line_height
-        required_space = text_height + resized_height + 100
-
-
-    y_position = top_margin
-    for line in text_lines:
-        if line.strip(): 
-            c.setFont("Helvetica", font_size)
-            c.drawString(left_margin, y_position, line)
-        y_position -= line_height
-
-
-    y_position -= 20
-
-    resized_width = max_image_width
-    image_resized = image.resize((int(resized_width), int(resized_height)))
-
-    img_io = io.BytesIO()
-    image_resized.save(img_io, format="PNG")
-    img_io.seek(0)
-
-
-    if y_position - resized_height < 40:
-        c.showPage()  
-        y_position = height - 50
-
-    c.drawImage(
-        ImageReader(img_io),
-        x=(width - resized_width) / 2,
-        y=y_position - resized_height,
-        width=resized_width,
-        height=resized_height
-    )
-
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-
-    return buffer
-"""
