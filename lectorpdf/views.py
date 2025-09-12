@@ -89,7 +89,7 @@ class NotaGeneradaView(APIView):
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
                 
-                cliente_info = df[df['cuenta'] == int(numero_cliente)].iloc[0]
+                cliente_info = df[df['cuenta'].replace(" ","") == int(numero_cliente)].iloc[0]
                 nombre_cliente = cliente_info['nombre']
                 dni_cliente = cliente_info.get('dni', '')
                 
