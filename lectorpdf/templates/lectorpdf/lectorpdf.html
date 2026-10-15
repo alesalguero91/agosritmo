@@ -257,17 +257,26 @@
         // Función para extraer el número de cliente del nombre del archivo
         function extractNumeroClienteFromFileName(fileName) {
             // Eliminar la extensión del archivo
-            const nameWithoutExt = fileName.split('.').slice(0, -1).join('.');
-            
+            let nameWithoutExt = fileName.split('.').slice(0, -1).join('.');
+
+            // Quitar contenido entre paréntesis: " (1)", "(copia)", etc. (archivos duplicados)
+            nameWithoutExt = nameWithoutExt.replace(/\([^)]*\)/g, '');
+
             // Buscar secuencias de números en el nombre del archivo
             const matches = nameWithoutExt.match(/\d+/g);
-            
-            if (matches && matches.length > 0) {
-                // Tomar el primer grupo de números encontrado como número de cliente
-                return matches[0];
+
+            if (!matches || matches.length === 0) {
+                return null;
             }
-            
-            return null;
+
+            // Descartar fechas (grupos de 8 dígitos tipo 20241015)
+            const candidatos = matches.filter(m => m.length <= 7);
+
+            // Priorizar el grupo de 5-6 dígitos (largo típico de la cuenta);
+            // si no hay, usar el primer candidato (cuentas de menos dígitos)
+            return candidatos.find(m => m.length >= 5 && m.length <= 6)
+                || candidatos[0]
+                || matches[0];
         }
 
         function mostrarResultado(mensaje, esError = false, esProcesando = false, esLimpieza = false) {

@@ -11,6 +11,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph, Frame
 from datetime import datetime
 import logging
+import unicodedata
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def normalizar_valor(valor):
         return ""
     s = str(valor).strip()
     s = s.replace("\u00a0", "")
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
     s = "".join(s.split())
     if "." in s:
         entera, decimal = s.rsplit(".", 1)
