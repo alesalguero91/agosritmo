@@ -46,10 +46,26 @@ def mejorar_imagen(img):
         logger.error(f"Error al mejorar imagen: {str(e)}")
         return img
 
+def normalizar_valor(valor):
+    """Normaliza un valor (número o texto) para comparación robusta.
+
+    Elimina espacios (incluido NBSP), espacios internos y el sufijo '.0' que
+    pandas agrega al convertir floats a string (ej: 123456.0 -> 123456).
+    """
+    if pd.isna(valor):
+        return ""
+    s = str(valor).strip()
+    s = s.replace("\u00a0", "")
+    s = "".join(s.split())
+    if "." in s:
+        entera, decimal = s.rsplit(".", 1)
+        if decimal.isdigit() and int(decimal) == 0:
+            s = entera
+    return s
+
 def buscar_cliente_en_excel(df, cliente_id):
-    """Busca cliente en Excel (código original)"""
+    """Busca cliente en Excel usando comparación normalizada."""
     df.columns = df.columns.str.lower().str.strip()
-    cliente_str = str(cliente_id).strip()
     
     posibles_columnas = ['cuenta', 'nro cuenta', 'nro de cuenta', 'numero cuenta', 
                        'numero de cuenta', 'cliente', 'nrocliente', 'numerocliente', 
@@ -61,14 +77,21 @@ def buscar_cliente_en_excel(df, cliente_id):
         raise ValueError("No se encontró columna con número de cuenta/cliente en el Excel")
     
     try:
-        df[columna_encontrada] = df[columna_encontrada].astype(str).str.strip()
-        cliente_data = df[df[columna_encontrada] == cliente_str]
+        cliente_normalizado = normalizar_valor(cliente_id)
+        valores_normalizados = df[columna_encontrada].map(normalizar_valor)
+        
+        cliente_data = df[valores_normalizados == cliente_normalizado]
         
         if cliente_data.empty:
-            cliente_str_sin_ceros = cliente_str.lstrip('0')
-            cliente_data = df[df[columna_encontrada].str.lstrip('0') == cliente_str_sin_ceros]
+            cliente_sin_ceros = cliente_normalizado.lstrip('0')
+            cliente_data = df[valores_normalizados.str.lstrip('0') == cliente_sin_ceros]
             
             if cliente_data.empty:
+                logger.warning(
+                    f"Cliente {cliente_id!r} no encontrado. Buscado (normalizado): "
+                    f"{cliente_normalizado!r}. Primeros valores en columna "
+                    f"{columna_encontrada!r}: {valores_normalizados.tolist()[:10]}"
+                )
                 return None
         
         datos = cliente_data.iloc[0].to_dict()
@@ -84,7 +107,7 @@ def buscar_cliente_en_excel(df, cliente_id):
         raise ValueError("No se encontraron los campos obligatorios (DNI y Nombre) para el cliente")
     
     return {
-        'nroCliente': str(datos[columna_encontrada]),
+        'nroCliente': normalizar_valor(datos[columna_encontrada]),
         'dni': dni,
         'Nombre': nombre
     }

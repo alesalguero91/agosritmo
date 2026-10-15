@@ -5,7 +5,7 @@ from rest_framework import status
 from .serializer import PDFUploadSerializer, ExcelUploadSerializer
 from .utils.pdf_processing import process_pdf_or_image
 from django.http import HttpResponse, FileResponse
-from .utils.pdf_generator import generar_pdf_con_texto_y_imagen
+from .utils.pdf_generator import generar_pdf_con_texto_y_imagen, normalizar_valor
 import pandas as pd
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -89,7 +89,7 @@ class NotaGeneradaView(APIView):
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
                 
-                cliente_info = df[df['cuenta'].replace(" ","") == str(numero_cliente).replace(" ","")].iloc[0]
+                cliente_info = df[df['cuenta'].map(normalizar_valor) == normalizar_valor(numero_cliente)].iloc[0]
                 nombre_cliente = cliente_info['nombre']
                 dni_cliente = cliente_info.get('dni', '')
                 
