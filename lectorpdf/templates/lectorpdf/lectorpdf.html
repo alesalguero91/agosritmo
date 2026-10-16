@@ -417,6 +417,36 @@
             mostrarResultado('✅ Archivo Excel generado y descargado');
         }
 
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function fetchConReintento(url, options, maxIntentos = 3) {
+            let response;
+            for (let intento = 1; intento <= maxIntentos; intento++) {
+                response = await fetch(url, options);
+                const esTransitorio = response.status === 429 || response.status === 502 || response.status === 503;
+                if (response.ok || !esTransitorio || intento === maxIntentos) {
+                    break;
+                }
+                await sleep(1000 * intento);
+            }
+            return response;
+        }
+
+        async function parsearJsonSeguro(response) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                return response.json();
+            }
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return { error: `Error del servidor (${response.status})` };
+            }
+        }
+
         async function procesarArchivos() {
             if (isProcessing) return;
             
@@ -439,6 +469,9 @@
             // Procesar cada archivo secuencialmente
             for (let i = 0; i < selectedFiles.length; i++) {
                 currentProcessingIndex = i;
+                if (i > 0) {
+                    await sleep(500);
+                }
                 const archivo = selectedFiles[i];
                 const numeroCliente = extractNumeroClienteFromFileName(archivo.name);
                 
@@ -473,7 +506,7 @@
                     const pdfFormData = new FormData();
                     pdfFormData.append('pdf_file', archivo);
                     
-                    const extractResponse = await fetch('/upload-pdf/', {
+                    const extractResponse = await fetchConReintento('/upload-pdf/', {
                         method: 'POST',
                         body: pdfFormData,
                         headers: {
@@ -482,11 +515,11 @@
                     });
 
                     if (!extractResponse.ok) {
-                        const errorData = await extractResponse.json();
+                        const errorData = await parsearJsonSeguro(extractResponse);
                         throw new Error(errorData.error || 'Error al extraer texto');
                     }
 
-                    const extractData = await extractResponse.json();
+                    const extractData = await parsearJsonSeguro(extractResponse);
                     console.log('Texto extraído:', extractData.text);
 
                     // Obtener importe
@@ -504,7 +537,7 @@
                     notaFormData.append('additional_data', numeroCliente);
                     notaFormData.append('excel_file', excelInput.files[0]);
                     
-                    const response = await fetch('/generar-nota/', {
+                    const response = await fetchConReintento('/generar-nota/', {
                         method: 'POST',
                         body: notaFormData,
                         headers: {
@@ -513,7 +546,7 @@
                     });
 
                     if (!response.ok) {
-                        const errorData = await response.json();
+                        const errorData = await parsearJsonSeguro(response);
                         throw new Error(errorData.error || 'Error al generar la nota');
                     }
 

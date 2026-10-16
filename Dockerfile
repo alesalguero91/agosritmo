@@ -23,10 +23,7 @@ COPY . .
 
 # Variables de entorno
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8000
 ENV TESSERACT_CMD=/usr/bin/tesseract
 
-EXPOSE $PORT
-
-# Ejecuta Gunicorn con configuración robusta
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "--max-requests", "1000", "titanio.wsgi:application"]
+# Ejecuta Gunicorn: usa el puerto $PORT de Render, 1 worker (CPU limitada) y timeout amplio para el OCR
+CMD gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --max-requests 1000 titanio.wsgi:application

@@ -82,9 +82,6 @@ class NotaGeneradaView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            texto_extraido = process_pdf_or_image(file)
-            logger.info(f"Texto extraído del archivo: {texto_extraido}")
-            
             try:
                 df = pd.read_excel(excel_file)
                 df.columns = df.columns.str.lower().str.strip()
